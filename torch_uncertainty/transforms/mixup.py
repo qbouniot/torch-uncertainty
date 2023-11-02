@@ -159,6 +159,66 @@ class RegMixup(AbstractMixup):
         return mixed_x, mixed_y
 
 
+class MITMixup(AbstractMixup):
+    def __init__(
+        self,
+        margin: float = 0.0,
+        alpha: float = 1.0,
+        mode: str = "batch",
+        num_classes: int = 1000,
+    ) -> None:
+        super().__init__(alpha, mode, num_classes)
+        self.margin = margin
+
+    def _get_params(self, batch_size: int, device: torch.device):
+        if self.mode == "batch":
+            lam1 = np.random.beta(self.alpha, self.alpha)
+            lam1 = max(lam1, 1 - lam1)
+            lam2 = np.random.beta(self.alpha, self.alpha)
+            lam2 = min(lam2, 1 - lam2)
+
+            while abs(lam1 - lam2) < self.margin:
+                lam1 = np.random.beta(self.alpha, self.alpha)
+                lam1 = max(lam1, 1 - lam1)
+                lam2 = np.random.beta(self.alpha, self.alpha)
+                lam2 = min(lam2, 1 - lam2)
+
+        else:
+            lam1 = Tensor(
+                np.random.beta(self.alpha, self.alpha, batch_size),
+                device=device,
+            )
+            lam1 = torch.max(lam1, 1 - lam1)
+            lam2 = Tensor(
+                np.random.beta(self.alpha, self.alpha, batch_size),
+                device=device,
+            )
+            lam2 = torch.min(lam2, 1 - lam2)
+
+            while torch.abs(lam1 - lam2) < self.margin:
+                lam1 = Tensor(
+                    np.random.beta(self.alpha, self.alpha, batch_size),
+                    device=device,
+                )
+                lam1 = torch.max(lam1, 1 - lam1)
+                lam2 = Tensor(
+                    np.random.beta(self.alpha, self.alpha, batch_size),
+                    device=device,
+                )
+                lam2 = torch.min(lam2, 1 - lam2)
+
+        index = torch.randperm(batch_size, device=device)
+        return lam1, lam2, index
+
+    def __call__(
+        self, x: Tensor, y: Tensor
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor]:
+        lam1, lam2, index = self._get_params(x.size()[0], x.device)
+        mixed_x1 = self._linear_mixing(lam1, x, index)
+        mixed_x2 = self._linear_mixing(lam2, x, index)
+        return mixed_x1, mixed_x2, y, y[index]
+
+
 class WarpingMixup(AbstractMixup):
     def __init__(
         self,
