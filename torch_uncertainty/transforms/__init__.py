@@ -1,6 +1,14 @@
 # ruff: noqa: F401
 from .cutout import Cutout
-from .mixup import Mixup, MixupIO, RegMixup, WarpingMixup
+from .mixup import (
+    Mixup,
+    MixupIO,
+    RegMixup,
+    WarpingMixup,
+    MixupTO,
+    QuantileMixup,
+    MITMixup,
+)
 from .transforms import (
     AutoContrast,
     Brightness,

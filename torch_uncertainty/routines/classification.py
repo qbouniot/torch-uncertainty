@@ -32,7 +32,15 @@ from ..metrics import (
 )
 from ..plotting_utils import CalibrationPlot, plot_hist
 from ..post_processing import TemperatureScaler
-from ..transforms import Mixup, MixupIO, RegMixup, WarpingMixup
+from ..transforms import (
+    Mixup,
+    MixupIO,
+    RegMixup,
+    WarpingMixup,
+    MixupTO,
+    QuantileMixup,
+    MITMixup,
+)
 
 
 class ClassificationSingle(pl.LightningModule):
@@ -64,8 +72,12 @@ class ClassificationSingle(pl.LightningModule):
         mixtype: str = "erm",
         mixmode: str = "elem",
         dist_sim: str = "emb",
+        warping: str = "beta_cdf",
         kernel_tau_max: float = 1.0,
         kernel_tau_std: float = 0.5,
+        lower_quantile: bool = False,
+        quantile: float = 0.5,
+        mit_margin: float = 0.0,
         mixup_alpha: float = 0,
         cutmix_alpha: float = 0,
         evaluate_ood: bool = False,
@@ -190,8 +202,62 @@ class ClassificationSingle(pl.LightningModule):
                 mode=self.mixmode,
                 num_classes=self.num_classes,
                 apply_kernel=True,
+                warping=warping,
                 tau_max=kernel_tau_max,
                 tau_std=kernel_tau_std,
+            )
+        elif self.mixtype == "manifold_mixup":
+            self.mixup = MixupTO(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+            )
+        elif self.mixtype == "manifold_warping_mixup":
+            self.mixup = WarpingMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                apply_kernel=True,
+                warping=warping,
+                tau_max=kernel_tau_max,
+                tau_std=kernel_tau_std,
+                manifold=True,
+            )
+        elif self.mixtype == "kernel_warping_regmixup":
+            self.mixup = WarpingMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                apply_kernel=True,
+                warping=warping,
+                tau_max=kernel_tau_max,
+                tau_std=kernel_tau_std,
+                regularization=True,
+            )
+        elif self.mixtype == "warp_quantile_mixup":
+            self.mixup = QuantileMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                lower=lower_quantile,
+                quantile=quantile,
+                warp=True,
+            )
+        elif self.mixtype == "nowarp_quantile_mixup":
+            self.mixup = QuantileMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                lower=lower_quantile,
+                quantile=quantile,
+                warp=False,
+            )
+        elif self.mixtype == "mit_all" or self.mixtype == "mit_last":
+            self.mixup = MITMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                margin=mit_margin,
             )
         else:
             self.mixup = lambda x, y: (x, y)
@@ -248,7 +314,10 @@ class ClassificationSingle(pl.LightningModule):
     def training_step(
         self, batch: Tuple[Tensor, Tensor], batch_idx: int
     ) -> STEP_OUTPUT:
-        if self.mixtype == "kernel_warping":
+        if (
+            self.mixtype == "kernel_warping"
+            or self.mixtype == "kernel_warping_regmixup"
+        ):
             if self.dist_sim == "emb":
                 with torch.no_grad():
                     feats = self.model.feats_forward(batch[0]).detach()
@@ -256,13 +325,74 @@ class ClassificationSingle(pl.LightningModule):
                 batch = self.mixup(*batch, feats)
             elif self.dist_sim == "inp":
                 batch = self.mixup(*batch, batch[0])
+        elif (
+            self.mixtype == "warp_quantile_mixup"
+            or self.mixtype == "nowarp_quantile_mixup"
+        ):
+            with torch.no_grad():
+                feats = self.model.feats_forward(batch[0]).detach()
+            batch = self.mixup(*batch, feats)
+        elif self.mixtype == "manifold_mixup":
+            inputs1, inputs2, targets, lam = self.mixup(*batch)
+        elif self.mixtype == "manifold_warping_mixup":
+            if self.dist_sim == "emb":
+                with torch.no_grad():
+                    feats = self.model.feats_forward(batch[0]).detach()
+                inputs1, inputs2, targets, lam = self.mixup(*batch, feats)
+            elif self.dist_sim == "mani_mix":
+                with torch.no_grad():
+                    feats, mix_hidden = self.model.manifold_feats_forward(
+                        batch[0]
+                    )
+                    feats = feats.detach()
+                inputs1, inputs2, targets, lam = self.mixup(*batch, feats)
+            elif self.dist_sim == "inp":
+                inputs1, inputs2, targets, lam = self.mixup(*batch, batch[0])
+        elif self.mixtype == "mit_last" or self.mixtype == "mit_all":
+            inputs1, inputs2, targets1, targets2, lam1, lam2 = self.mixup(
+                *batch
+            )
         else:
             batch = self.mixup(*batch)
 
-        inputs, targets = self.format_batch_fn(batch)
+        if (
+            self.mixtype == "manifold_mixup"
+            or self.mixtype == "manifold_warping_mixup"
+        ):
+            inputs1, targets = self.format_batch_fn((inputs1, targets))
+            inputs2, targets = self.format_batch_fn((inputs2, targets))
+        elif self.mixtype == "mit_last" or self.mixtype == "mit_all":
+            inputs1, targets1 = self.format_batch_fn((inputs1, targets1))
+            inputs2, targets2 = self.format_batch_fn((inputs2, targets2))
+        else:
+            inputs, targets = self.format_batch_fn(batch)
 
         if self.is_elbo:
             loss = self.criterion(inputs, targets)
+        elif self.mixtype == "manifold_mixup":
+            logits = self.model.mix_forward(inputs1, inputs2, lam)
+            loss = self.criterion(logits, targets)
+        elif self.mixtype == "manifold_warping_mixup":
+            if self.dist_sim == "mani_mix":
+                logits = self.model.mix_forward(
+                    inputs1, inputs2, lam, mix_hidden
+                )
+            else:
+                logits = self.model.mix_forward(inputs1, inputs2, lam)
+            loss = self.criterion(logits, targets)
+        elif self.mixtype == "mit_last" or self.mixtype == "mit_all":
+            logits1, logits2 = self.model.mit_forward(
+                inputs1,
+                inputs2,
+                lam1,
+                lam2,
+                self.mixup.margin,
+                self.mixup.alpha,
+                self.mixtype == "mit_all",
+            )
+            loss = 0.5 * self.criterion(
+                logits1, targets1
+            ) + 0.5 * self.criterion(logits2, targets2)
         else:
             logits = self.forward(inputs)
             # BCEWithLogitsLoss expects float targets
@@ -450,7 +580,18 @@ class ClassificationSingle(pl.LightningModule):
         parent_parser.add_argument(
             "--kernel_tau_std", dest="kernel_tau_std", type=float, default=0.5
         )
-
+        parent_parser.add_argument(
+            "--quantile", dest="quantile", type=float, default=0.5
+        )
+        parent_parser.add_argument(
+            "--lower_quantile", dest="lower_quantile", action="store_true"
+        )
+        parent_parser.add_argument(
+            "--mit_margin", dest="mit_margin", type=float, default=0.0
+        )
+        parent_parser.add_argument(
+            "--warping", dest="warping", default="beta_cdf", type=str
+        )
         return parent_parser
 
 
