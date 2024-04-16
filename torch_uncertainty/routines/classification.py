@@ -29,6 +29,7 @@ from ..metrics import (
     MutualInformation,
     NegativeLogLikelihood,
     VariationRatio,
+    AdaptiveCalibrationError,
 )
 from ..plotting_utils import CalibrationPlot, plot_hist
 from ..post_processing import TemperatureScaler
@@ -40,6 +41,7 @@ from ..transforms import (
     MixupTO,
     QuantileMixup,
     MITMixup,
+    RankMixup_MNDCG,
 )
 
 
@@ -136,6 +138,7 @@ class ClassificationSingle(pl.LightningModule):
                     "ece": CalibrationError(
                         task="multiclass", num_classes=self.num_classes
                     ),
+                    "aece": AdaptiveCalibrationError(),
                     "brier": BrierScore(num_classes=self.num_classes),
                 },
                 compute_groups=False,
@@ -259,6 +262,13 @@ class ClassificationSingle(pl.LightningModule):
                 num_classes=self.num_classes,
                 margin=mit_margin,
             )
+        elif self.mixtype == "rankmixup":
+            self.mixup = RankMixup_MNDCG(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                num_mixup=3,
+            )
         else:
             self.mixup = lambda x, y: (x, y)
 
@@ -352,6 +362,8 @@ class ClassificationSingle(pl.LightningModule):
             inputs1, inputs2, targets1, targets2, lam1, lam2 = self.mixup(
                 *batch
             )
+        elif self.mixtype == "rankmixup":
+            inputs1, inputs2, targets1, targets2, lam = self.mixup(*batch)
         else:
             batch = self.mixup(*batch)
 
@@ -362,6 +374,9 @@ class ClassificationSingle(pl.LightningModule):
             inputs1, targets = self.format_batch_fn((inputs1, targets))
             inputs2, targets = self.format_batch_fn((inputs2, targets))
         elif self.mixtype == "mit_last" or self.mixtype == "mit_all":
+            inputs1, targets1 = self.format_batch_fn((inputs1, targets1))
+            inputs2, targets2 = self.format_batch_fn((inputs2, targets2))
+        elif self.mixtype == "rankmixup":
             inputs1, targets1 = self.format_batch_fn((inputs1, targets1))
             inputs2, targets2 = self.format_batch_fn((inputs2, targets2))
         else:
@@ -393,6 +408,13 @@ class ClassificationSingle(pl.LightningModule):
             loss = 0.5 * self.criterion(
                 logits1, targets1
             ) + 0.5 * self.criterion(logits2, targets2)
+        elif self.mixtype == "rankmixup":
+            logits1 = self.forward(inputs1)
+            logits2 = self.forward(inputs2)
+            loss = self.criterion(logits1, targets1) + 0.1 * (
+                1.0
+                - self.mixup.get_indcg(logits1, logits2, lam, targets2).mean()
+            )
         else:
             logits = self.forward(inputs)
             # BCEWithLogitsLoss expects float targets

@@ -1,5 +1,7 @@
 # Custom
 .vscode/
+drafts/
+*.sh
 data/
 logs/
 lightning_logs/

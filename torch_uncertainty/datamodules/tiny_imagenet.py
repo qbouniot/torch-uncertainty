@@ -1,6 +1,7 @@
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import Any, List, Optional, Union
+from copy import copy
 
 import torchvision.transforms as T
 from numpy.typing import ArrayLike
@@ -8,6 +9,7 @@ from timm.data.auto_augment import rand_augment_transform
 from torch import nn
 from torch.utils.data import ConcatDataset, DataLoader
 from torchvision.datasets import DTD, SVHN
+from sklearn.model_selection import train_test_split
 
 from ..datasets.classification import ImageNetO, TinyImageNet
 from .abstract import AbstractDataModule
@@ -23,6 +25,7 @@ class TinyImageNetDataModule(AbstractDataModule):
         root: Union[str, Path],
         evaluate_ood: bool,
         batch_size: int,
+        val_split: float = 0.0,
         ood_ds: str = "svhn",
         rand_augment_opt: Optional[str] = None,
         num_workers: int = 1,
@@ -43,6 +46,7 @@ class TinyImageNetDataModule(AbstractDataModule):
         self.ood_ds = ood_ds
 
         self.dataset = TinyImageNet
+        self.val_split = val_split
 
         if ood_ds == "imagenet-o":
             self.ood_dataset = ImageNetO
@@ -120,16 +124,40 @@ class TinyImageNetDataModule(AbstractDataModule):
 
     def setup(self, stage: Optional[str] = None) -> None:
         if stage == "fit" or stage is None:
-            self.train = self.dataset(
+            full = self.dataset(
                 self.root,
                 split="train",
                 transform=self.transform_train,
             )
-            self.val = self.dataset(
-                self.root,
-                split="val",
-                transform=self.transform_test,
-            )
+            if self.val_split:
+                train_data, val_data, train_label, val_label = train_test_split(
+                    full.samples,
+                    full.label_data,
+                    test_size=self.val_split,
+                    stratify=full.label_data,
+                )
+                self.train = copy(full)
+                self.val = copy(full)
+
+                self.train.samples = train_data
+                self.train.samples_num = len(train_data)
+                self.train.label_data = train_label
+
+                self.val.samples = val_data
+                self.val.samples_num = len(val_data)
+                self.val.label_data = val_label
+                self.val.transform = self.transform_test
+            else:
+                self.train = self.dataset(
+                    self.root,
+                    split="train",
+                    transform=self.transform_train,
+                )
+                self.val = self.dataset(
+                    self.root,
+                    split="val",
+                    transform=self.transform_test,
+                )
         if stage == "test":
             self.test = self.dataset(
                 self.root,

@@ -8,6 +8,7 @@ from .mixup import (
     MixupTO,
     QuantileMixup,
     MITMixup,
+    RankMixup_MNDCG,
 )
 from .transforms import (
     AutoContrast,

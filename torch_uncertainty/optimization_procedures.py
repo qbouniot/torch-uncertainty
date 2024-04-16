@@ -396,6 +396,8 @@ def get_procedure(
             procedure = optim_cifar10_resnet18
         elif ds_name == "cifar100":
             procedure = optim_cifar100_resnet18
+        elif ds_name == "tiny-imagenet":
+            procedure = optim_tinyimagenet_resnet50
         else:
             raise NotImplementedError(f"Dataset {ds_name} not implemented.")
     elif arch_name == "resnet34":
