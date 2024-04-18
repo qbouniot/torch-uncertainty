@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional, Tuple
+from typing import Any
 
 from torchvision.datasets import ImageFolder
 from torchvision.datasets.utils import (
@@ -26,13 +27,12 @@ class Fractals(ImageFolder):
 
     def __init__(
         self,
-        root: str,
-        transform: Optional[Callable[..., Any]] = None,
-        target_transform: Optional[Callable[..., Any]] = None,
+        root: str | Path,
+        transform: Callable[..., Any] | None = None,
+        target_transform: Callable[..., Any] | None = None,
         download: bool = False,
-    ):
-        if isinstance(root, str):
-            self.root = Path(root)
+    ) -> None:
+        self.root = Path(root)
 
         if download:
             self.download()
@@ -44,7 +44,7 @@ class Fractals(ImageFolder):
             )
 
         super().__init__(
-            root, transform=transform, target_transform=target_transform
+            self.root, transform=transform, target_transform=target_transform
         )
 
     def _check_integrity(self) -> bool:
@@ -67,5 +67,10 @@ class Fractals(ImageFolder):
         )
         extract_archive(self.root / self.filename, self.root)
 
-    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+    def __getitem__(self, index: int) -> tuple[Any, Any]:
+        """Get the samples and targets of the dataset.
+
+        Args:
+            index (int): The index of the sample to get.
+        """
         return super().__getitem__(index)[0]

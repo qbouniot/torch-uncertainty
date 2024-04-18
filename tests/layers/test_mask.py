@@ -4,28 +4,24 @@ import torch
 from torch_uncertainty.layers.masksembles import MaskedConv2d, MaskedLinear
 
 
-@pytest.fixture
+@pytest.fixture()
 def feat_input_odd() -> torch.Tensor:
-    feat = torch.rand((5, 10))
-    return feat
+    return torch.rand((5, 10))
 
 
-@pytest.fixture
+@pytest.fixture()
 def feat_input_even() -> torch.Tensor:
-    feat = torch.rand((8, 10))
-    return feat
+    return torch.rand((8, 10))
 
 
-@pytest.fixture
+@pytest.fixture()
 def img_input_odd() -> torch.Tensor:
-    img = torch.rand((5, 10, 3, 3))
-    return img
+    return torch.rand((5, 10, 3, 3))
 
 
-@pytest.fixture
+@pytest.fixture()
 def img_input_even() -> torch.Tensor:
-    img = torch.rand((8, 10, 3, 3))
-    return img
+    return torch.rand((8, 10, 3, 3))
 
 
 class TestMaskedLinear:
@@ -38,7 +34,7 @@ class TestMaskedLinear:
 
     def test_linear_two_estimators_odd(self, feat_input_odd: torch.Tensor):
         layer = MaskedLinear(10, 2, num_estimators=2, scale=2)
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError):
             _ = layer(feat_input_odd)
 
     def test_linear_two_estimators_even(self, feat_input_even: torch.Tensor):
@@ -46,15 +42,16 @@ class TestMaskedLinear:
         out = layer(feat_input_even)
         assert out.shape == torch.Size([8, 2])
 
-    def test_linear_c_lt_10(self):
+    def test_linear_errors(self):
         with pytest.raises(ValueError):
             _ = MaskedLinear(8, 2, num_estimators=1, scale=2)
 
-    def test_linear_s_gt_6(self):
+        with pytest.raises(ValueError):
+            _ = MaskedLinear(8, 2, num_estimators=1, scale=None)
+
         with pytest.raises(ValueError):
             _ = MaskedLinear(10, 2, num_estimators=1, scale=7)
 
-    def test_linear_s_lt_1(self):
         with pytest.raises(ValueError):
             _ = MaskedLinear(10, 2, num_estimators=1, scale=0)
 
@@ -77,6 +74,9 @@ class TestMaskedConv2d:
         out = layer(img_input_even)
         assert out.shape == torch.Size([8, 2, 3, 3])
 
-    def test_conv_s_lt_1(self):
+    def test_conv_error(self):
         with pytest.raises(ValueError):
-            _ = MaskedLinear(10, 2, num_estimators=1, scale=0)
+            MaskedConv2d(10, 2, num_estimators=2, kernel_size=1, scale=None)
+
+        with pytest.raises(ValueError):
+            MaskedConv2d(10, 2, num_estimators=2, kernel_size=1, scale=0)

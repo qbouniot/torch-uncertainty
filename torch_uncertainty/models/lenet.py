@@ -1,14 +1,16 @@
-from typing import Callable, Dict, Optional, Type, Union
+from collections.abc import Callable
+from functools import partial
 
 import torch
 import torch.nn.functional as F
-from torch import Tensor, nn
+from torch import nn
 
-from ..layers.bayesian import BayesConv2d, BayesLinear
-from ..layers.packed import PackedConv2d, PackedLinear
-from .utils import StochasticModel, toggle_dropout
+from torch_uncertainty.layers.bayesian import BayesConv2d, BayesLinear
+from torch_uncertainty.layers.mc_batch_norm import MCBatchNorm2d
+from torch_uncertainty.layers.packed import PackedConv2d, PackedLinear
+from torch_uncertainty.models.utils import stochastic_model
 
-__all__ = ["lenet", "packed_lenet", "bayesian_lenet"]
+__all__ = ["bayesian_lenet", "lenet", "packed_lenet"]
 
 
 class _LeNet(nn.Module):
@@ -16,67 +18,70 @@ class _LeNet(nn.Module):
         self,
         in_channels: int,
         num_classes: int,
-        linear_layer: Type[nn.Module],
-        conv2d_layer: Type[nn.Module],
-        layer_args: Dict,
+        linear_layer: type[nn.Module],
+        conv2d_layer: type[nn.Module],
+        layer_args: dict,
         activation: Callable,
-        norm: Type[nn.Module],
+        norm: type[nn.Module],
         groups: int,
         dropout_rate: float,
-        num_estimators: int,
         last_layer_dropout: bool,
     ) -> None:
         super().__init__()
         self.activation = activation
-        self.norm = norm()  # TODO: Fix when not Identity
+
+        batchnorm = False
+        if norm == nn.Identity:
+            self.norm1 = norm()
+            self.norm2 = norm()
+        elif norm == nn.BatchNorm2d or (
+            isinstance(norm, partial) and norm.func == MCBatchNorm2d
+        ):
+            batchnorm = True
+        else:
+            raise ValueError("norm must be nn.Identity or nn.BatchNorm2d")
+
         self.dropout_rate = dropout_rate
-        self.num_estimators = num_estimators
         self.last_layer_dropout = last_layer_dropout
 
         self.conv1 = conv2d_layer(
             in_channels, 6, (5, 5), groups=groups, **layer_args
         )
+        if batchnorm:
+            self.norm1 = norm(6)
         self.conv2 = conv2d_layer(6, 16, (5, 5), groups=groups, **layer_args)
+        if batchnorm:
+            self.norm2 = norm(16)
         self.pooling = nn.AdaptiveAvgPool2d((4, 4))
         self.fc1 = linear_layer(256, 120, **layer_args)
         self.fc2 = linear_layer(120, 84, **layer_args)
         self.fc3 = linear_layer(84, num_classes, **layer_args)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.handle_dropout(x)
         out = F.dropout(
-            self.activation(self.norm(self.conv1(x))),
+            self.activation(self.norm1(self.conv1(x))),
             p=self.dropout_rate,
         )
         out = F.max_pool2d(out, 2)
         out = F.dropout(
-            self.activation(self.norm(self.conv2(out))),
+            self.activation(self.norm2(self.conv2(out))),
             p=self.dropout_rate,
         )
         out = F.max_pool2d(out, 2)
         out = self.pooling(out)
         out = torch.flatten(out, 1)
         out = F.dropout(
-            self.activation(self.norm(self.fc1(out))),
+            self.activation(self.fc1(out)),
             p=self.dropout_rate,
         )
         out = F.dropout(
-            self.activation(self.norm(self.fc2(out))),
+            self.activation(self.fc2(out)),
             p=self.dropout_rate,
         )
-        out = self.fc3(out)
-        return out
-
-    def handle_dropout(self, x: Tensor) -> Tensor:
-        if self.num_estimators is not None:
-            if not self.training:
-                if self.last_layer_dropout is not None:
-                    toggle_dropout(self, self.last_layer_dropout)
-                x = x.repeat(self.num_estimators, 1, 1, 1)
-        return x
+        return self.fc3(out)
 
 
-@StochasticModel
+@stochastic_model
 class _StochasticLeNet(_LeNet):
     pass
 
@@ -85,20 +90,16 @@ def _lenet(
     stochastic: bool,
     in_channels: int,
     num_classes: int,
-    linear_layer: Type[nn.Module] = nn.Linear,
-    conv2d_layer: Type[nn.Module] = nn.Conv2d,
-    layer_args: Dict = {},
+    layer_args: dict,
+    linear_layer: type[nn.Module] = nn.Linear,
+    conv2d_layer: type[nn.Module] = nn.Conv2d,
     activation: Callable = nn.ReLU,
-    norm: Type[nn.Module] = nn.Identity,
+    norm: type[nn.Module] = nn.Identity,
     groups: int = 1,
     dropout_rate: float = 0.0,
-    num_estimators: Optional[int] = None,
     last_layer_dropout: bool = False,
-) -> Union[_LeNet, _StochasticLeNet]:
-    if not stochastic:
-        model = _LeNet
-    else:
-        model = _StochasticLeNet
+) -> _LeNet | _StochasticLeNet:
+    model = _LeNet if not stochastic else _StochasticLeNet
     return model(
         in_channels=in_channels,
         num_classes=num_classes,
@@ -109,7 +110,6 @@ def _lenet(
         groups=groups,
         layer_args=layer_args,
         dropout_rate=dropout_rate,
-        num_estimators=num_estimators,
         last_layer_dropout=last_layer_dropout,
     )
 
@@ -118,10 +118,9 @@ def lenet(
     in_channels: int,
     num_classes: int,
     activation: Callable = F.relu,
-    norm: Type[nn.Module] = nn.Identity,
+    norm: type[nn.Module] = nn.Identity,
     groups: int = 1,
     dropout_rate: float = 0.0,
-    num_estimators: int = None,
     last_layer_dropout: bool = False,
 ) -> _LeNet:
     return _lenet(
@@ -135,7 +134,6 @@ def lenet(
         norm=norm,
         groups=groups,
         dropout_rate=dropout_rate,
-        num_estimators=num_estimators,
         last_layer_dropout=last_layer_dropout,
     )
 
@@ -147,7 +145,7 @@ def packed_lenet(
     alpha: float = 2,
     gamma: float = 1,
     activation: Callable = F.relu,
-    norm: Type[nn.Module] = nn.Identity,
+    norm: type[nn.Module] = nn.Identity,
     groups: int = 1,
     dropout_rate: float = 0.0,
 ) -> _LeNet:
@@ -172,20 +170,17 @@ def packed_lenet(
 def bayesian_lenet(
     in_channels: int,
     num_classes: int,
-    prior_mu: Optional[float] = None,
-    prior_sigma_1: Optional[float] = None,
-    prior_sigma_2: Optional[float] = None,
-    prior_pi: Optional[float] = None,
-    mu_init: Optional[float] = None,
-    sigma_init: Optional[float] = None,
+    prior_sigma_1: float | None = None,
+    prior_sigma_2: float | None = None,
+    prior_pi: float | None = None,
+    mu_init: float | None = None,
+    sigma_init: float | None = None,
     activation: Callable = F.relu,
-    norm: Type[nn.Module] = nn.Identity,
+    norm: type[nn.Module] = nn.Identity,
     groups: int = 1,
     dropout_rate: float = 0.0,
 ) -> _LeNet:
     layers_args = {}
-    if prior_mu is not None:
-        layers_args["prior_mu"] = prior_mu
     if prior_sigma_1 is not None:
         layers_args["prior_sigma_1"] = prior_sigma_1
     if prior_sigma_2 is not None:

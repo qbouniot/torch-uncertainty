@@ -1,7 +1,10 @@
+from collections.abc import Callable
+from importlib import util
 from pathlib import Path
-from typing import Callable, Optional, Tuple, Union
 
-import pandas as pd
+if util.find_spec("pandas"):
+    import pandas as pd
+
 import torch
 import torch.nn.functional as F
 from torch.utils.data import Dataset
@@ -129,18 +132,16 @@ class UCIRegression(Dataset):
 
     def __init__(
         self,
-        root: Union[Path, str],
-        transform: Optional[Callable] = None,
-        target_transform: Optional[Callable] = None,
+        root: Path | str,
+        transform: Callable | None = None,
+        target_transform: Callable | None = None,
         dataset_name: str = "energy",
         download: bool = False,
         seed: int = 42,
         shuffle: bool = True,
     ) -> None:
         super().__init__()
-        if isinstance(root, str):
-            root = Path(root)
-        self.root = root
+        self.root = Path(root)
         self.transform = transform
         self.target_transform = target_transform
         self.seed = seed
@@ -163,6 +164,7 @@ class UCIRegression(Dataset):
         self._make_dataset()
 
     def __len__(self) -> int:
+        """Get the length of the dataset."""
         return self.data.shape[0]
 
     def _check_integrity(self) -> bool:
@@ -172,11 +174,11 @@ class UCIRegression(Dataset):
             self.md5,
         )
 
-    def _standardize(self):
+    def _standardize(self) -> None:
         self.data = (self.data - self.data_mean) / self.data_std
         self.targets = (self.targets - self.target_mean) / self.target_std
 
-    def _compute_statistics(self):
+    def _compute_statistics(self) -> None:
         self.data_mean = self.data.mean(axis=0)
         self.data_std = self.data.std(axis=0)
         self.data_std[self.data_std == 0] = 1
@@ -223,6 +225,10 @@ class UCIRegression(Dataset):
 
     def _make_dataset(self) -> None:
         """Create dataset from extracted files."""
+        if not util.find_spec("pandas"):
+            raise ImportError(
+                "Please install pandas manually to use the UCI datasets."
+            )
         path = self.root / self.root_appendix / self.dataset_name
         if self.dataset_name == "boston":
             array = pd.read_table(
@@ -234,13 +240,6 @@ class UCIRegression(Dataset):
         elif self.dataset_name == "concrete":
             array = pd.read_excel(path / "Concrete_Data.xls").to_numpy()
         elif self.dataset_name == "energy-efficiency":
-            try:
-                import openpyxl  # noqa: F401
-            except ImportError:
-                raise ImportError(
-                    "Energy dataset: Please install openpyxl manually to read "
-                    "the excel file."
-                )
             array = pd.read_excel(path / "ENB2012_data.xlsx").to_numpy()
         elif self.dataset_name == "energy-prediction":
             array = pd.read_csv(path / "energydata_complete.csv")[
@@ -254,8 +253,6 @@ class UCIRegression(Dataset):
             )
             # convert Ex to 10^x and remove second target
             array = df.apply(pd.to_numeric, errors="coerce").to_numpy()[:, :-1]
-        # elif self.dataset_name == "power-plant":
-        #     array = pd.read_excel(path / "Folds5x2_pp.xlsx").to_numpy()
         elif self.dataset_name == "protein":
             array = pd.read_csv(
                 path / "CASP.csv",
@@ -295,18 +292,17 @@ class UCIRegression(Dataset):
             indexes = torch.randperm(array.shape[0], generator=gen)
             array = array[indexes]
 
-    def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
         """Get sample and target for a given index."""
         if self.dataset_name == "energy-prediction":
             data = self.data[index : index + 13, :]
             target = self.data[index : index + 13, :]
             return data, target
 
-        else:
-            data = self.data[index]
-            if self.transform is not None:
-                data = self.transform(data)
-            target = self.targets[index]
-            if self.target_transform is not None:
-                target = self.target_transform(target)
+        data = self.data[index]
+        if self.transform is not None:
+            data = self.transform(data)
+        target = self.targets[index]
+        if self.target_transform is not None:
+            target = self.target_transform(target)
         return data, target

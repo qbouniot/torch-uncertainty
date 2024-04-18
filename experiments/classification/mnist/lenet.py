@@ -9,7 +9,7 @@ from torch_uncertainty.routines.classification import ClassificationSingle
 
 
 def optim_lenet(model: nn.Module) -> dict:
-    """Optimization procedure for LeNet.
+    """Optimization recipe for LeNet.
 
     Uses Adam default hyperparameters.
 
@@ -30,7 +30,8 @@ if __name__ == "__main__":
     else:
         root = Path(args.root)
 
-    net_name = "std-lenet-mnist"
+    if args.exp_name == "":
+        args.exp_name = "std-lenet-mnist"
 
     # datamodule
     args.root = str(root / "data")
@@ -43,9 +44,9 @@ if __name__ == "__main__":
         model=model,
         num_classes=dm.num_classes,
         in_channels=dm.num_channels,
-        loss=nn.CrossEntropyLoss,
-        optimization_procedure=optim_lenet,
+        loss=nn.CrossEntropyLoss(),
+        optim_recipe=optim_lenet,
         **vars(args),
     )
 
-    cli_main(baseline, dm, root, net_name, args)
+    cli_main(baseline, dm, args.exp_dir, args.exp_name, args)

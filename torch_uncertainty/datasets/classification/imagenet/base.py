@@ -1,5 +1,6 @@
+import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 from torchvision.datasets import ImageFolder
 from torchvision.datasets.utils import (
@@ -25,35 +26,30 @@ class ImageNetVariation(ImageFolder):
             downloaded, it is not downloaded again. Defaults to False.
     """
 
-    url = None
-    filename = None
-    tgz_md5 = None
-    dataset_name = None
-    root_appendix = ""
+    url: str
+    filename: str
+    tgz_md5: str
+    dataset_name: str
+    root_appendix: str
 
-    wnid_to_idx_url = (
-        "https://raw.githubusercontent.com/torch-uncertainty/"
-        "imagenet-classes/master/wnid_to_idx.txt"
-    )
+    wnid_to_idx_url = "https://raw.githubusercontent.com/torch-uncertainty/dataset-metadata/main/classification/imagenet/classes.json"
     wnid_to_idx_md5 = (
-        "7fac43d97231a87a264a118fa76a13ad"
-    )  # avoid replacement attack
+        "1bcf467b49f735dbeb745249eae6b133"  # avoid replacement attack
+    )
 
     def __init__(
         self,
-        root: str,
-        split: Optional[str] = None,
-        transform: Optional[Callable] = None,
-        target_transform: Optional[Callable] = None,
+        root: str | Path,
+        split: str | None = None,
+        transform: Callable | None = None,
+        target_transform: Callable | None = None,
         download: bool = False,
     ) -> None:
-        if isinstance(root, str):
-            root = Path(root)
-
-        self.root = root
-
         if download:
             self.download()
+
+        self.root = Path(root)
+        self.split = split
 
         if not self._check_integrity():
             raise RuntimeError(
@@ -76,16 +72,15 @@ class ImageNetVariation(ImageFolder):
                 self.root / Path(self.filename),
                 self.tgz_md5,
             )
-        elif isinstance(self.filename, list):  # ImageNet-C
+        if isinstance(self.filename, list):  # ImageNet-C
             integrity: bool = True
-            for filename, md5 in zip(self.filename, self.tgz_md5):
+            for filename, md5 in zip(self.filename, self.tgz_md5, strict=True):
                 integrity *= check_integrity(
-                    self.root / self.root_appendix / Path(filename),
+                    self.root / self.root_appendix / filename,
                     md5,
                 )
             return integrity
-        else:
-            raise ValueError("filename must be str or list")
+        raise ValueError("filename must be str or list")
 
     def download(self) -> None:
         """Download and extract dataset."""
@@ -102,7 +97,7 @@ class ImageNetVariation(ImageFolder):
             )
         elif isinstance(self.filename, list):  # ImageNet-C
             for url, filename, md5 in zip(
-                self.url, self.filename, self.tgz_md5
+                self.url, self.filename, self.tgz_md5, strict=True
             ):
                 # Check that this particular file is not already downloaded
                 if not check_integrity(
@@ -118,16 +113,17 @@ class ImageNetVariation(ImageFolder):
 
     def _repair_dataset(self) -> None:
         """Download the wnid_to_idx.txt file and to get the correct targets."""
-        path = self.root / "imagenet_wnid_to_idx.txt"
+        path = self.root / "classes.json"
         if not check_integrity(path, self.wnid_to_idx_md5):
             download_url(
                 self.wnid_to_idx_url,
                 self.root,
-                "imagenet_wnid_to_idx.txt",
+                "classes.json",
                 self.wnid_to_idx_md5,
             )
-        with open(self.root / "imagenet_wnid_to_idx.txt") as file:
-            self.wnid_to_idx = eval(file.read())
+
+        with (self.root / "classes.json").open() as file:
+            self.wnid_to_idx = json.load(file)
 
         for i in range(len(self.samples)):
             wnid = Path(self.samples[i][0]).parts[-2]

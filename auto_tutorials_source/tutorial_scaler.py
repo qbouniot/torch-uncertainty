@@ -1,14 +1,15 @@
-# -*- coding: utf-8 -*-
-
 """
 Improve Top-label Calibration with Temperature Scaling
 ======================================================
 
 In this tutorial, we use *TorchUncertainty* to improve the calibration
-of the top-label predictions
-and the reliability of the underlying neural network.
+of the top-label predictions and the reliability of the underlying neural network.
 
-We also see how to use the datamodules outside any Lightning trainers, 
+This tutorial provides extensive details on how to use the TemperatureScaler
+class, however, this is done automatically in the classification routine when setting
+the `calibration_set` to val or test.
+
+Through this tutorial, we also see how to use the datamodules outside any Lightning trainers,
 and how to use TorchUncertainty's models.
 
 1. Loading the Utilities
@@ -19,21 +20,19 @@ In this tutorial, we will need:
 - torch for its objects
 - the "calibration error" metric to compute the ECE and evaluate the top-label calibration
 - the CIFAR-100 datamodule to handle the data
-- a ResNet 18 as starting model 
+- a ResNet 18 as starting model
 - the temperature scaler to improve the top-label calibration
 - a utility to download hf models easily
-- the calibration plot to visualize the calibration. If you use the classification routine, 
-    the plots will be automatically available in the tensorboard logs.
+- the calibration plot to visualize the calibration.
+
+If you use the classification routine, the plots will be automatically available in the tensorboard logs.
 """
 
-import torch
-from torchmetrics import CalibrationError
-
 from torch_uncertainty.datamodules import CIFAR100DataModule
+from torch_uncertainty.metrics import CE
 from torch_uncertainty.models.resnet import resnet18
 from torch_uncertainty.post_processing import TemperatureScaler
 from torch_uncertainty.utils import load_hf
-from torch_uncertainty.plotting_utils import CalibrationPlot
 
 # %%
 # 2. Loading a model from TorchUncertainty's HF
@@ -43,7 +42,7 @@ from torch_uncertainty.plotting_utils import CalibrationPlot
 # This can be done in a one liner:
 
 # Build the model
-model = resnet18(in_channels=3, num_classes=100, groups=1, style="cifar")
+model = resnet18(in_channels=3, num_classes=100, style="cifar", conv_bias=False)
 
 # Download the weights (the config is not used here)
 weights, config = load_hf("resnet18_c100")
@@ -57,17 +56,15 @@ model.load_state_dict(weights)
 #
 # To get the dataloader from the datamodule, just call prepare_data, setup, and
 # extract the first element of the test dataloader list. There are more than one
-# element if `:attr:evaluate_ood` is True.
+# element if eval_ood is True: the dataloader of in-distribution data and the dataloader
+# of out-of-distribution data. Otherwise, it is a list of 1 element.
 
-dm = CIFAR100DataModule(root="./data", evaluate_ood=False, batch_size=32)
+dm = CIFAR100DataModule(root="./data", eval_ood=False, batch_size=32)
 dm.prepare_data()
 dm.setup("test")
 
 # Get the full test dataloader (unused in this tutorial)
 dataloader = dm.test_dataloader()[0]
-
-# create the calibration plot utility
-cal_plot = CalibrationPlot()
 
 # %%
 # 4. Iterating on the Dataloader and Computing the ECE
@@ -91,23 +88,21 @@ cal_dataset, test_dataset, other = random_split(
 test_dataloader = DataLoader(test_dataset, batch_size=32)
 
 # Initialize the ECE
-ece = CalibrationError(task="multiclass", num_classes=100)
+ece = CE(task="multiclass", num_classes=100)
 
 # Iterate on the calibration dataloader
 for sample, target in test_dataloader:
     logits = model(sample)
     probs = logits.softmax(-1)
     ece.update(probs, target)
-    cal_plot.update(probs, target)
 
 # Compute & print the calibration error
-cal = ece.compute()
-print(f"ECE before scaling - {cal*100:.3}%.")
+print(f"ECE before scaling - {ece.compute():.3%}.")
 
 # %%
 # We also compute and plot the top-label calibration figure. We see that the
 # model is not well calibrated.
-fig, ax = cal_plot.compute()
+fig, ax = ece.plot()
 fig.show()
 
 # %%
@@ -120,39 +115,33 @@ fig.show()
 # `fit` method for more details.
 
 # Fit the scaler on the calibration dataset
-scaler = TemperatureScaler()
-scaler = scaler.fit(model=model, calibration_set=cal_dataset)
+scaled_model = TemperatureScaler(model=model)
+scaled_model = scaled_model.fit(calibration_set=cal_dataset)
 
 # %%
 # 6. Iterating Again to Compute the Improved ECE
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #
-# We create a wrapper of the original model and the scaler using torch.nn.Sequential.
-# This is possible because the scaler is derived from nn.Module.
+# We can directly use the scaler as a calibrated model.
 #
 # Note that you will need to first reset the ECE metric to avoid mixing the scores of
 # the previous and current iterations.
-
-# Create the calibrated model
-cal_model = torch.nn.Sequential(model, scaler)
 
 # Reset the ECE
 ece.reset()
 
 # Iterate on the test dataloader
 for sample, target in test_dataloader:
-    logits = cal_model(sample)
+    logits = scaled_model(sample)
     probs = logits.softmax(-1)
     ece.update(probs, target)
-    cal_plot.update(probs, target)
 
-cal = ece.compute()
-print(f"ECE after scaling - {cal*100:.3}%.")
+print(f"ECE after scaling - {ece.compute():.3%}.")
 
 # %%
 # We finally compute and plot the scaled top-label calibration figure. We see
 # that the model is now better calibrated.
-fig, ax = cal_plot.compute()
+fig, ax = ece.plot()
 fig.show()
 
 # %%

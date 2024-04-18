@@ -1,5 +1,6 @@
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Literal, Optional, Tuple
+from typing import Any, Literal
 
 from torchvision.datasets import ImageFolder
 from torchvision.datasets.utils import (
@@ -38,14 +39,13 @@ class NotMNIST(ImageFolder):
 
     def __init__(
         self,
-        root: str,
+        root: str | Path,
         subset: Literal["small", "large"] = "small",
-        transform: Optional[Callable[..., Any]] = None,
-        target_transform: Optional[Callable[..., Any]] = None,
+        transform: Callable[..., Any] | None = None,
+        target_transform: Callable[..., Any] | None = None,
         download: bool = False,
-    ):
-        if isinstance(root, str):
-            self.root = Path(root)
+    ) -> None:
+        self.root = Path(root)
 
         if subset not in self.subsets:
             raise ValueError(
@@ -66,7 +66,7 @@ class NotMNIST(ImageFolder):
             )
 
         super().__init__(
-            root + f"/notMNIST_{subset}",
+            self.root + f"/notMNIST_{subset}",
             transform=transform,
             target_transform=target_transform,
         )
@@ -91,10 +91,10 @@ class NotMNIST(ImageFolder):
         )
         print(f"Downloaded {self.filename} to {self.root}")
 
-    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+    def __getitem__(self, index: int) -> tuple[Any, Any]:
+        """Get the samples and targets of the dataset.
+
+        Args:
+            index (int): The index of the sample to get.
+        """
         return super().__getitem__(index)[0]
-
-
-if __name__ == "__main__":
-    set = NotMNIST(root="./data", subset="large", download=True)
-    print(set)

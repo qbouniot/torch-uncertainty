@@ -1,5 +1,6 @@
-import os
-from typing import Any, Callable, Literal, Optional
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, Literal
 
 import torch
 from torchvision.datasets import CIFAR10, CIFAR100
@@ -34,7 +35,7 @@ class CIFAR10N(CIFAR10):
 
     def __init__(
         self,
-        root: str,
+        root: str | Path,
         train: bool = True,
         file_arg: Literal[
             "aggre_label",
@@ -43,12 +44,12 @@ class CIFAR10N(CIFAR10):
             "random_label2",
             "random_label3",
         ] = "aggre_label",
-        transform: Optional[Callable[..., Any]] = None,
-        target_transform: Optional[Callable[..., Any]] = None,
+        transform: Callable[..., Any] | None = None,
+        target_transform: Callable[..., Any] | None = None,
         download: bool = False,
     ) -> None:
         super().__init__(
-            root,
+            Path(root),
             train=train,
             transform=transform,
             target_transform=target_transform,
@@ -64,16 +65,12 @@ class CIFAR10N(CIFAR10):
                 "download it."
             )
 
-        self.targets = list(
-            torch.load(os.path.join(self.root, self.filename))[file_arg]
-        )
+        self.targets = list(torch.load(self.root / self.filename)[file_arg])
 
     def _check_specific_integrity(self) -> bool:
         filename, md5 = self.n_test_list
-        fpath = os.path.join(self.root, filename)
-        if not check_integrity(fpath, md5):
-            return False
-        return True
+        fpath = self.root / filename
+        return check_integrity(fpath, md5)
 
     def download_n(self) -> None:
         download_and_extract_archive(
@@ -98,8 +95,8 @@ class CIFAR100N(CIFAR100):
             "fine_label",
             "coarse_label",
         ] = "fine_label",
-        transform: Optional[Callable[..., Any]] = None,
-        target_transform: Optional[Callable[..., Any]] = None,
+        transform: Callable[..., Any] | None = None,
+        target_transform: Callable[..., Any] | None = None,
         download: bool = False,
     ) -> None:
         super().__init__(
@@ -109,6 +106,7 @@ class CIFAR100N(CIFAR100):
             target_transform=target_transform,
             download=download,
         )
+        self.root = Path(self.root)
 
         if download:
             self.download_n()
@@ -119,16 +117,12 @@ class CIFAR100N(CIFAR100):
                 "download it."
             )
 
-        self.targets = list(
-            torch.load(os.path.join(self.root, self.filename))[file_arg]
-        )
+        self.targets = list(torch.load(self.root / self.filename)[file_arg])
 
     def _check_specific_integrity(self) -> bool:
         filename, md5 = self.n_test_list
-        fpath = os.path.join(self.root, filename)
-        if not check_integrity(fpath, md5):
-            return False
-        return True
+        fpath = self.root / filename
+        return check_integrity(fpath, md5)
 
     def download_n(self) -> None:
         download_and_extract_archive(

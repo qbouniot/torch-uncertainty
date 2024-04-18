@@ -1,9 +1,7 @@
-from typing import Type
+from typing import Literal
 
 import torch.nn.functional as F
 from torch import Tensor, nn
-
-from ..utils import toggle_dropout
 
 __all__ = [
     "wideresnet28x10",
@@ -28,7 +26,7 @@ class WideBasicBlock(nn.Module):
             groups=groups,
             bias=False,
         )
-        self.dropout = nn.Dropout(p=dropout_rate)
+        self.dropout = nn.Dropout2d(p=dropout_rate)
         self.bn1 = nn.BatchNorm2d(planes)
         self.conv2 = nn.Conv2d(
             planes,
@@ -57,11 +55,10 @@ class WideBasicBlock(nn.Module):
         out = F.relu(self.bn1(self.dropout(self.conv1(x))))
         out = self.conv2(out)
         out += self.shortcut(x)
-        out = F.relu(self.bn2(out))
-        return out
+        return F.relu(self.bn2(out))
 
 
-class _Wide(nn.Module):
+class _WideResNet(nn.Module):
     """WideResNet from `Wide Residual Networks`.
 
     Note:
@@ -77,45 +74,46 @@ class _Wide(nn.Module):
         widen_factor: int,
         in_channels: int,
         num_classes: int,
+        conv_bias: bool,
         dropout_rate: float,
         groups: int = 1,
-        style: str = "imagenet",
-        num_estimators: int = None,
-        last_layer_dropout: bool = False,
+        style: Literal["imagenet", "cifar"] = "imagenet",
     ) -> None:
         super().__init__()
         self.in_planes = 16
-        self.num_estimators = num_estimators
-        self.last_layer_dropout = last_layer_dropout
+        self.dropout_rate = dropout_rate
 
-        assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4."
+        if (depth - 4) % 6 != 0:
+            raise ValueError(f"Wide-resnet depth should be 6n+4. Got {depth}.")
         num_blocks = int((depth - 4) / 6)
         k = widen_factor
 
-        nStages = [16, 16 * k, 32 * k, 64 * k]
+        num_stages = [16, 16 * k, 32 * k, 64 * k]
 
         if style == "imagenet":
             self.conv1 = nn.Conv2d(
                 in_channels,
-                nStages[0],
+                num_stages[0],
                 kernel_size=7,
                 stride=2,
                 padding=3,
                 groups=groups,
-                bias=True,
+                bias=conv_bias,
             )
-        else:
+        elif style == "cifar":
             self.conv1 = nn.Conv2d(
                 in_channels,
-                nStages[0],
+                num_stages[0],
                 kernel_size=3,
                 stride=1,
                 padding=1,
                 groups=groups,
-                bias=True,
+                bias=conv_bias,
             )
+        else:
+            raise ValueError(f"Unknown WideResNet style: {style}. ")
 
-        self.bn1 = nn.BatchNorm2d(nStages[0])
+        self.bn1 = nn.BatchNorm2d(num_stages[0])
 
         if style == "imagenet":
             self.optional_pool = nn.MaxPool2d(
@@ -126,7 +124,7 @@ class _Wide(nn.Module):
 
         self.layer1 = self._wide_layer(
             WideBasicBlock,
-            nStages[1],
+            num_stages[1],
             num_blocks=num_blocks,
             dropout_rate=dropout_rate,
             stride=1,
@@ -134,7 +132,7 @@ class _Wide(nn.Module):
         )
         self.layer2 = self._wide_layer(
             WideBasicBlock,
-            nStages[2],
+            num_stages[2],
             num_blocks=num_blocks,
             dropout_rate=dropout_rate,
             stride=2,
@@ -142,29 +140,30 @@ class _Wide(nn.Module):
         )
         self.layer3 = self._wide_layer(
             WideBasicBlock,
-            nStages[3],
+            num_stages[3],
             num_blocks=num_blocks,
             dropout_rate=dropout_rate,
             stride=2,
             groups=groups,
         )
 
+        self.dropout = nn.Dropout(p=dropout_rate)
         self.pool = nn.AdaptiveAvgPool2d(output_size=1)
         self.flatten = nn.Flatten(1)
 
         self.linear = nn.Linear(
-            nStages[3],
+            num_stages[3],
             num_classes,
         )
 
     def _wide_layer(
         self,
-        block: Type[WideBasicBlock],
+        block: type[WideBasicBlock],
         planes: int,
         num_blocks: int,
         dropout_rate: float,
         stride: int,
-        groups,
+        groups: int,
     ) -> nn.Module:
         strides = [stride] + [1] * (int(num_blocks) - 1)
         layers = []
@@ -183,36 +182,27 @@ class _Wide(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x: Tensor) -> Tensor:
-        x = self.handle_dropout(x)
+    def feats_forward(self, x: Tensor) -> Tensor:
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.optional_pool(out)
         out = self.layer1(out)
         out = self.layer2(out)
         out = self.layer3(out)
         out = self.pool(out)
-        out = self.flatten(out)
-        out = self.linear(out)
-        return out
+        return self.flatten(out)
 
-    def handle_dropout(self, x: Tensor) -> Tensor:
-        if self.num_estimators is not None:
-            if not self.training:
-                if self.last_layer_dropout is not None:
-                    toggle_dropout(self, self.last_layer_dropout)
-                x = x.repeat(self.num_estimators, 1, 1, 1)
-        return x
+    def forward(self, x: Tensor) -> Tensor:
+        return self.linear(self.feats_forward(x))
 
 
 def wideresnet28x10(
     in_channels: int,
     num_classes: int,
     groups: int = 1,
+    conv_bias: bool = True,
     dropout_rate: float = 0.3,
-    style: str = "imagenet",
-    num_estimators: int = None,
-    last_layer_dropout: bool = False,
-) -> nn.Module:
+    style: Literal["imagenet", "cifar"] = "imagenet",
+) -> _WideResNet:
     """Wide-ResNet-28x10 from `Wide Residual Networks
     <https://arxiv.org/pdf/1605.07146.pdf>`_.
 
@@ -221,24 +211,22 @@ def wideresnet28x10(
         num_classes (int): Number of classes to predict.
         groups (int, optional): Number of groups in convolutions. Defaults to
             ``1``.
+        conv_bias (bool): Whether to use bias in convolutions. Defaults to
+            ``True``.
+        dropout_rate (float, optional): Dropout rate. Defaults to ``0.3``.
         style (bool, optional): Whether to use the ImageNet
             structure. Defaults to ``True``.
-        num_estimators (int, optional): Number of samples to draw from the
-            dropout distribution. Defaults to ``None``.
-        last_layer_dropout (bool, optional): Whether to apply dropout to the
-            last layer during inference. Defaults to ``False``.
 
     Returns:
         _Wide: A Wide-ResNet-28x10.
     """
-    return _Wide(
+    return _WideResNet(
         depth=28,
         widen_factor=10,
         in_channels=in_channels,
+        conv_bias=conv_bias,
         dropout_rate=dropout_rate,
         num_classes=num_classes,
         groups=groups,
         style=style,
-        num_estimators=num_estimators,
-        last_layer_dropout=last_layer_dropout,
     )

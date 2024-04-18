@@ -5,15 +5,16 @@ Installation
     :language: bash
 
 
-You can install the package from PyPI or from source. Choose the latter if you
-want to access the files included the `experiments <https://github.com/ENSTA-U2IS/torch-uncertainty/tree/main/experiments>`_
+You can install the package either from PyPI or from source. Choose the latter if you
+want to access the files included the `experiments <https://github.com/ENSTA-U2IS-AI/torch-uncertainty/tree/main/experiments>`_
 folder or if you want to contribute to the project.
 
 
 From PyPI
 ---------
 
-Install the package via pip: 
+Check that you have PyTorch (cpu or gpu) installed on your system. Then, install
+the package via pip: 
 
 .. parsed-literal::
 
@@ -28,68 +29,13 @@ To update the package, run:
 From source
 -----------
 
-To install the project from source, you may use `Poetry <https://python-poetry.org/>`_
-or install the package using pip directly.
+To install the project from source, you can use pip directly.
 
-With poetry
-^^^^^^^^^^^
-
-**Installing Poetry**
-
-Installation guidelines for poetry are available `here <https://python-poetry.org/docs/>`_.
-They boil down to executing the following command:
-
-.. parsed-literal::
-    
-    curl -sSL https://install.python-poetry.org | python3 -
-
-**Installing the package**
-
-Clone the repository with:
+Again, with PyTorch already installed, clone the repository with:
 
 .. parsed-literal::
 
-    git clone https://github.com/ENSTA-U2IS/torch-uncertainty.git
-    cd torch-uncertainty
-
-Create a new conda environment and activate it:
-
-.. parsed-literal::
-
-    conda create -n uncertainty python=3.10
-    conda activate uncertainty
-
-Install the package using poetry:
-
-.. parsed-literal::
-
-    poetry install
-    # or, for development
-    poetry install --with dev
-
-
-Depending on your system, you may encounter poetry errors. If so, kill the 
-process and add :bash:`PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`
-at the beginning of every :bash:`poetry` command, eg:
-
-.. parsed-literal::
-
-    PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring poetry install
-
-To update the package, run:
-
-.. parsed-literal::
-
-    git pull && poetry update
-
-With pip
-^^^^^^^^
-
-Clone the repository with:
-
-.. parsed-literal::
-
-    git clone https://github.com/ENSTA-U2IS/torch-uncertainty.git
+    git clone https://github.com/ENSTA-U2IS-AI/torch-uncertainty.git
     cd torch-uncertainty
 
 Create a new conda environment and activate it:
@@ -105,5 +51,32 @@ Install the package using pip in editable mode:
 
     pip install -e .
 
-For now, you will have to install the optional dependencies manually.
-Check the pyproject.toml file for the list of dependencies.
+If PyTorch is not installed, the latest version will be installed automatically.
+
+Options
+-------
+
+You can install the package with the following options:
+
+* dev: includes all the dependencies for the development of the package
+    including ruff and the pre-commits hooks.
+* docs: includes all the dependencies for the documentation of the package
+    based on sphinx
+* image: includes all the dependencies for the image processing module
+    including opencv and scikit-image
+* tabular: includes pandas
+* all: includes all the aforementioned dependencies
+
+For example, to install the package with the dependencies for the development
+and the documentation, run the following command. It is a mandatory step if you
+want to contribute to the project.
+
+.. parsed-literal::
+
+    pip install -e .[dev,docs]
+
+To install the package with all the dependencies, run:
+
+.. parsed-literal::
+
+    pip install -e .[all]

@@ -9,7 +9,7 @@ Uncertainty Models
 The following uncertainty models are implemented.
 
 Deep Evidential Classification
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 For Deep Evidential Classification, consider citing:
 
@@ -20,7 +20,7 @@ For Deep Evidential Classification, consider citing:
 
 
 Beta NLL in Deep Regression
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 For Beta NLL in Deep Regression, consider citing:
 
@@ -61,6 +61,17 @@ For Deep Ensembles, consider citing:
 
 * Authors: *Balaji Lakshminarayanan, Alexander Pritzel, and Charles Blundell*
 * Paper: `NeurIPS 2017 <https://arxiv.org/pdf/1612.01474.pdf>`__.
+
+
+Monte-Carlo Dropout
+^^^^^^^^^^^^^^^^^^^
+
+For Monte-Carlo Dropout, consider citing:
+
+**Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning**
+
+* Authors: *Yarin Gal and Zoubin Ghahramani*
+* Paper: `ICML 2016 <https://arxiv.org/pdf/1506.02142.pdf>`__.
 
 
 BatchEnsemble
@@ -104,15 +115,60 @@ For Packed-Ensembles, consider citing:
 * Authors: *Olivier Laurent, Adrien Lafage, Enzo Tartaglione, Geoffrey Daniel, Jean-Marc Martinez, Andrei Bursuc, and Gianni Franchi*
 * Paper: `ICLR 2023 <https://arxiv.org/abs/2210.09184>`__.
 
-Monte-Carlo Dropout
-^^^^^^^^^^^^^^^^^^^
 
-For Monte-Carlo Dropout, consider citing:
+LPBNN
+^^^^^
 
-**Dropout as a Bayesian Approximation: Representing Model Uncertainty in Deep Learning**
+For LPBNN, consider citing:
 
-* Authors: *Yarin Gal and Zoubin Ghahramani*
-* Paper: `ICML 2016 <https://arxiv.org/pdf/1506.02142.pdf>`__.
+**Encoding the latent posterior of Bayesian Neural Networks for uncertainty quantification**
+
+* Authors: *Gianni Franchi, Andrei Bursuc, Emanuel Aldea, Severine Dubuisson, Isabelle Bloch*
+* Paper: `IEEE TPAMI 2024 <https://arxiv.org/abs/2012.02818>`__.
+
+
+Data Augmentation Methods
+-------------------------
+
+Mixup
+^^^^^
+
+For Mixup, consider citing:
+
+**mixup: Beyond Empirical Risk Minimization**
+
+* Authors: *Hongyi Zhang, Moustapha Cisse, Yann N. Dauphin, and David Lopez-Paz*
+* Paper: `ICLR 2018 <https://arxiv.org/pdf/1710.09412.pdf>`__.
+
+RegMixup
+^^^^^^^^
+
+For RegMixup, consider citing:
+
+**RegMixup: Mixup as a Regularizer Can Surprisingly Improve Accuracy and Out Distribution Robustness**
+
+* Authors: *Francesco Pinto, Harry Yang, Ser-Nam Lim, Philip H.S. Torr, Puneet K. Dokania*
+* Paper: `NeurIPS 2022 <https://arxiv.org/abs/2206.14502>`__.
+
+MixupIO
+^^^^^^^
+
+For MixupIO, consider citing:
+
+**On the Pitfall of Mixup for Uncertainty Calibration**
+
+* Authors: *Deng-Bao Wang, Lanqing Li, Peilin Zhao, Pheng-Ann Heng, and Min-Ling Zhang*
+* Paper: `CVPR 2023 <https://openaccess.thecvf.com/content/CVPR2023/papers/Wang_On_the_Pitfall_of_Mixup_for_Uncertainty_Calibration_CVPR_2023_paper.pdf>`
+
+Warping Mixup
+^^^^^^^^^^^^^
+
+For Warping Mixup, consider citing:
+
+**Tailoring Mixup to Data using Kernel Warping functions**
+
+* Authors: *Quentin Bouniot, Pavlo Mozharovskyi, and Florence d'Alché-Buc*
+* Paper: `ArXiv 2023 <https://arxiv.org/abs/2311.01434>`__.
 
 Post-Processing Methods
 -----------------------
@@ -127,6 +183,15 @@ For temperature, vector, & matrix scaling, consider citing:
 * Authors: *Chuan Guo, Geoff Pleiss, Yu Sun, and Kilian Q. Weinberger*
 * Paper: `ICML 2017 <https://arxiv.org/pdf/1706.04599.pdf>`__.
 
+Monte-Carlo Batch Normalization
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+For Monte-Carlo Batch Normalization, consider citing:
+
+**Bayesian Uncertainty Estimation for Batch Normalized Deep Networks**
+
+* Authors: *Mathias Teye, Hossein Azizpour, and Kevin Smith*
+* Paper: `ICML 2018 <https://arxiv.org/pdf/1802.06455.pdf>`__.
 
 Metrics
 -------
@@ -142,6 +207,17 @@ For the expected calibration error, consider citing:
 
 * Authors: *Mahdi Pakdaman Naeini, Gregory F. Cooper, and Milos Hauskrecht*
 * Paper: `AAAI 2015 <https://www.dbmi.pitt.edu/wp-content/uploads/2022/10/Obtaining-well-calibrated-probabilities-using-Bayesian-binning.pdf>`__.
+
+Grouping Loss
+^^^^^^^^^^^^^
+
+For the grouping loss, consider citing:
+
+**Beyond Calibration: Estimating the Grouping Loss of Modern Neural Networks**
+
+* Authors: *Alexandre Perez-Lebel, Marine Le Morvan, and Gaël Varoquaux*
+* Paper: `ICLR 2023 <https://arxiv.org/pdf/2210.16315.pdf>`__.
+
 
 Datasets
 --------
@@ -239,8 +315,33 @@ Textures
 
 **ViM: Out-of-distribution with virtual-logit matching**
 
-* Authors: *Haoqi Wang, Zhizhong Li, Litong Feng, and Wayne Zhang**
+* Authors: *Haoqi Wang, Zhizhong Li, Litong Feng, and Wayne Zhang*
 * Paper: `CVPR 2022 <https://arxiv.org/pdf/2203.10807.pdf>`__.
+
+OpenImage-O
+^^^^^^^^^^^
+
+Curation:
+
+**ViM: Out-of-distribution with virtual-logit matching**
+
+* Authors: *Haoqi Wang, Zhizhong Li, Litong Feng, and Wayne Zhang*
+* Paper: `CVPR 2022 <https://arxiv.org/pdf/2203.10807.pdf>`__.
+
+Original Dataset:
+
+**The open images dataset v4: Unified image classification, object detection, and visual relationship detection at scale.**
+
+* Authors: *Alina Kuznetsova, Hassan Rom, Neil Alldrin, Jasper Uijlings, Ivan Krasin, Jordi Pont-Tuset, Shahab Kamali, et al.*
+* Paper: `IJCV 2020 <https://arxiv.org/pdf/1811.00982.pdf>`__.
+
+MUAD
+^^^^
+
+**MUAD: Multiple Uncertainties for Autonomous Driving Dataset**
+
+* Authors: Gianni Franchi, Xuanlong Yu, Andrei Bursuc, et al.*
+* Paper: `BMVC 2022 <https://arxiv.org/pdf/2203.01437.pdf>`
 
 Architectures
 -------------
@@ -268,3 +369,12 @@ VGG
 
 * Authors: *Karen Simonyan and Andrew Zisserman*
 * Paper: `ICLR 2015 <https://arxiv.org/pdf/1409.1556.pdf>`__.
+
+Layers
+------
+
+**Filter Response Normalization Layer: Eliminating Batch Dependence in the
+Training of Deep Neural Networks**
+
+* Authors: *Saurabh Singh and Shankar Krishnan*
+* Paper: `CVPR 2020 <https://arxiv.org/pdf/1911.09737.pdf>`__.

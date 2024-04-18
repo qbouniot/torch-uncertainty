@@ -1,5 +1,3 @@
-from typing import Tuple
-
 import numpy as np
 import scipy
 import torch
@@ -12,8 +10,7 @@ def beta_warping(
 ) -> float:
     if inverse_cdf:
         return scipy.stats.beta.ppf(x, a=alpha + eps, b=alpha + eps)
-    else:
-        return scipy.stats.beta.cdf(x, a=alpha + eps, b=alpha + eps)
+    return scipy.stats.beta.cdf(x, a=alpha + eps, b=alpha + eps)
 
 
 def sim_gauss_kernel(
@@ -23,15 +20,15 @@ def sim_gauss_kernel(
     dist_rate = tau_max * np.exp(-(dist - 1) / (2 * tau_std * tau_std))
     if inverse_cdf:
         return dist_rate
-    else:
-        return 1 / (dist_rate + 1e-12)
+    return 1 / (dist_rate + 1e-12)
 
 
+# ruff: noqa: ERA001
 # def tensor_linspace(start: Tensor, stop: Tensor, num: int):
 #     """
 #     Creates a tensor of shape [num, *start.shape] whose values are evenly
 #     spaced from start to end, inclusive.
-#     Replicates but the multi-dimensional bahaviour of numpy.linspace in PyTorch.
+#     Replicates but the multi-dimensional behaviour of numpy.linspace in PyTorch.
 #     """
 #     # create a tensor of 'num' steps from 0 to 1
 #     steps = torch.arange(num, dtype=torch.float32, device=start.device) / (
@@ -42,7 +39,7 @@ def sim_gauss_kernel(
 #     # to allow for broadcastings
 #     # using 'steps.reshape([-1, *([1]*start.ndim)])' would be nice here
 #     # but torchscript
-#     # "cannot statically infer the expected size of a list in this contex",
+#     # "cannot statically infer the expected size of a list in this context",
 #     # hence the code below
 #     for i in range(start.ndim):
 #         steps = steps.unsqueeze(-1)
@@ -101,7 +98,7 @@ class AbstractMixup:
         if self.mode == "batch":
             lam = np.random.beta(self.alpha, self.alpha)
         else:
-            lam = torch.tensor(
+            lam = torch.as_tensor(
                 np.random.beta(self.alpha, self.alpha, batch_size),
                 device=device,
             )
@@ -130,17 +127,21 @@ class AbstractMixup:
         if isinstance(lam, Tensor):
             lam = lam.view(-1, *[1 for _ in range(y1.ndim - 1)]).float()
 
-        if isinstance(lam, Tensor) and lam.dtype == torch.bool:
-            return lam * y1 + (~lam) * y2
-        else:
-            return lam * y1 + (1 - lam) * y2
+        return lam * y1 + (1 - lam) * y2
 
-    def __call__(self, x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:
-        return x, y
+    def __call__(self, x: Tensor, y: Tensor) -> tuple[Tensor, Tensor]:
+        raise NotImplementedError
 
 
 class Mixup(AbstractMixup):
-    def __call__(self, x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:
+    """Original Mixup method from Zhang et al.
+
+    Reference:
+        "mixup: Beyond Empirical Risk Minimization" (ICLR 2021)
+        http://arxiv.org/abs/1710.09412.
+    """
+
+    def __call__(self, x: Tensor, y: Tensor) -> tuple[Tensor, Tensor]:
         lam, index = self._get_params(x.size()[0], x.device)
         mixed_x = self._linear_mixing(lam, x, index)
         mixed_y = self._mix_target(lam, y, index)
@@ -148,12 +149,22 @@ class Mixup(AbstractMixup):
 
 
 class MixupIO(AbstractMixup):
-    def __call__(self, x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:
+    """Mixup on inputs only with targets unchanged, from Wang et al.
+
+    Reference:
+        "On the Pitfall of Mixup for Uncertainty Calibration" (CVPR 2023)
+        https://openaccess.thecvf.com/content/CVPR2023/papers/Wang_On_the_Pitfall_of_Mixup_for_Uncertainty_Calibration_CVPR_2023_paper.pdf.
+    """
+
+    def __call__(self, x: Tensor, y: Tensor) -> tuple[Tensor, Tensor]:
         lam, index = self._get_params(x.size()[0], x.device)
 
         mixed_x = self._linear_mixing(lam, x, index)
 
-        mixed_y = self._mix_target((lam > 0.5), y, index)
+        if self.mode == "batch":
+            mixed_y = self._mix_target(float(lam > 0.5), y, index)
+        else:
+            mixed_y = self._mix_target((lam > 0.5).float(), y, index)
 
         return mixed_x, mixed_y
 
@@ -161,7 +172,7 @@ class MixupIO(AbstractMixup):
 class MixupTO(AbstractMixup):
     def __call__(
         self, x: Tensor, y: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor, float | Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor, float | Tensor]:
         lam, index = self._get_params(x.size()[0], x.device)
 
         mixed_y = self._mix_target(lam, y, index)
@@ -170,7 +181,14 @@ class MixupTO(AbstractMixup):
 
 
 class RegMixup(AbstractMixup):
-    def __call__(self, x: Tensor, y: Tensor) -> Tuple[Tensor, Tensor]:
+    """RegMixup method from Pinto et al.
+
+    Reference:
+        'RegMixup: Mixup as a Regularizer Can Surprisingly Improve Accuracy and Out Distribution Robustness' (NeurIPS 2022)
+        https://arxiv.org/abs/2206.14502.
+    """
+
+    def __call__(self, x: Tensor, y: Tensor) -> tuple[Tensor, Tensor]:
         lam, index = self._get_params(x.size()[0], x.device)
         part_x = self._linear_mixing(lam, x, index)
         part_y = self._mix_target(lam, y, index)
@@ -232,7 +250,7 @@ class MITMixup(AbstractMixup):
 
     def __call__(
         self, x: Tensor, y: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, float | Tensor, float | Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor, float | Tensor, float | Tensor]:
         lam1, lam2, index = self._get_params(x.size()[0], x.device)
         mixed_x1 = self._linear_mixing(lam1, x, index)
         mixed_x2 = self._linear_mixing(lam2, x, index)
@@ -305,19 +323,19 @@ class QuantileMixup(AbstractMixup):
 
             quant = torch.quantile(pdist_mat, self.quantile)
 
-            filter = torch.logical_or(
+            filtering = torch.logical_or(
                 self.comp_func(pdist_mat, quant),
                 torch.eye(pdist_mat.size(0), device=pdist_mat.device),
             )
 
             new_index = torch.cat(
                 [
-                    filter[i]
+                    filtering[i]
                     .nonzero()
                     .squeeze(-1)[
-                        torch.randint(0, len(filter[i].nonzero()), (1,))
+                        torch.randint(0, len(filtering[i].nonzero()), (1,))
                     ]
-                    for i in range(len(filter))
+                    for i in range(len(filtering))
                 ]
             )
 
@@ -347,6 +365,12 @@ class WarpingMixup(AbstractMixup):
         lookup: bool = False,
         lookup_size: int = 4096,
     ) -> None:
+        """Kernel Warping Mixup method from Bouniot et al.
+
+        Reference:
+            "Tailoring Mixup to Data using Kernel Warping functions" (2023)
+            https://arxiv.org/abs/2311.01434.
+        """
         super().__init__(alpha, mode, num_classes)
         self.apply_kernel = apply_kernel
         self.tau_max = tau_max
@@ -365,13 +389,13 @@ class WarpingMixup(AbstractMixup):
         eps = 1e-12
         self.y_max = torch.tensor(50, device=device)
         self.nb_betas = self.y_max * 10
-        X = torch.linspace(0, 1, lookup_size)
-        Y = torch.linspace(eps, self.y_max, self.nb_betas)
+        xs = torch.linspace(0, 1, lookup_size)
+        ys = torch.linspace(eps, self.y_max, self.nb_betas)
 
         lookup_table = []
 
-        for x in X:
-            row = scipy.stats.beta.ppf(x, a=Y, b=Y)
+        for x in xs:
+            row = scipy.stats.beta.ppf(x, a=ys, b=ys)
             lookup_table.append(row)
 
         self.lookup_table = torch.tensor(np.array(lookup_table), device=device)
@@ -397,8 +421,8 @@ class WarpingMixup(AbstractMixup):
         x: Tensor,
         y: Tensor,
         feats: Tensor,
-        warp_param=1.0,
-    ) -> Tuple[Tensor, Tensor, Tensor, Tensor] | Tuple[Tensor, Tensor]:
+        warp_param: float = 1.0,
+    ) -> tuple[Tensor, Tensor]:
         lam, index = self._get_params(x.size()[0], x.device)
 
         if self.apply_kernel:
@@ -430,7 +454,7 @@ class WarpingMixup(AbstractMixup):
                         l2_dist, self.tau_max, self.tau_std
                     )
                 else:
-                    raise NotImplementedError()
+                    raise NotImplementedError
 
         if self.warping == "inverse_beta_cdf":
             k_lam = torch.tensor(
@@ -455,24 +479,23 @@ class WarpingMixup(AbstractMixup):
             ).int()
             k_lam = self.lookup_table[lookup_x, lookup_y]
         else:
-            raise NotImplementedError()
+            raise NotImplementedError
 
         if self.manifold:
             mixed_y = self._mix_target(k_lam, y, index)
             return x, x[index], mixed_y, k_lam
-        elif self.regularization:
+        if self.regularization:
             part_x = self._linear_mixing(k_lam, x, index)
             part_y = self._mix_target(k_lam, y, index)
             mixed_x = torch.cat([x, part_x], dim=0)
             mixed_y = torch.cat([F.one_hot(y, self.num_classes), part_y], dim=0)
             return mixed_x, mixed_y
-        else:
-            mixed_x = self._linear_mixing(k_lam, x, index)
-            mixed_y = self._mix_target(k_lam, y, index)
-            return mixed_x, mixed_y
+        mixed_x = self._linear_mixing(k_lam, x, index)
+        mixed_y = self._mix_target(k_lam, y, index)
+        return mixed_x, mixed_y
 
 
-class RankMixup_MNDCG(AbstractMixup):
+class RankMixupMNDCG(AbstractMixup):
     def __init__(
         self,
         alpha: float = 1.0,
@@ -514,13 +537,11 @@ class RankMixup_MNDCG(AbstractMixup):
         ndcg = dcg / idcg
         inv_ndcg = idcg / dcg
         ndcg_mask = idcg > dcg
-        ndcg = ndcg_mask * ndcg + (~ndcg_mask) * inv_ndcg
-
-        return ndcg
+        return ndcg_mask * ndcg + (~ndcg_mask) * inv_ndcg
 
     def __call__(
         self, x: Tensor, y: Tensor
-    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
         mixup_data = []
         lams = []
         mixup_y = []
@@ -533,6 +554,10 @@ class RankMixup_MNDCG(AbstractMixup):
             mixup_y.append(part_y)
             lams.append(lam)
 
-        return x, torch.cat(mixup_data, dim=0), y, torch.cat(
-            mixup_y, dim=0
-        ), torch.tensor(lams, device=x.device)
+        return (
+            x,
+            torch.cat(mixup_data, dim=0),
+            y,
+            torch.cat(mixup_y, dim=0),
+            torch.tensor(lams, device=x.device),
+        )

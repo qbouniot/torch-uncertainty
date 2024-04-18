@@ -1,13 +1,11 @@
-# -*- coding: utf-8 -*-
-
 """
-From a Vanilla Classifier to a Packed-Ensemble
-==============================================
+From a Standard Classifier to a Packed-Ensemble
+===============================================
 
 This tutorial is heavily inspired by PyTorch's `Training a Classifier <https://pytorch.org/tutorials/beginner/blitz/cifar10_tutorial.html#test-the-network-on-the-test-data>`_
 tutorial.
 
-Let's dive step by step into the process to modify a vanilla classifier into a
+Let's dive step by step into the process to modify a standard classifier into a
 packed-ensemble classifier.
 
 Dataset
@@ -22,8 +20,9 @@ Here is an example of what the data looks like:
 
 .. figure:: /_static/img/cifar10.png
    :alt: cifar10
+   :figclass: figure-caption
 
-   cifar10
+   Sample of the CIFAR-10 dataset
 
 Training an image Packed-Ensemble classifier
 --------------------------------------------
@@ -32,7 +31,7 @@ Here is the outline of the process:
 
 1. Load and normalizing the CIFAR10 training and test datasets using
    ``torchvision``
-2. Define a Packed-Ensemble from a vanilla classifier
+2. Define a Packed-Ensemble from a standard classifier
 3. Define a loss function
 4. Train the Packed-Ensemble on the training data
 5. Test the Packed-Ensemble on the test data and evaluate its performance
@@ -41,6 +40,8 @@ Here is the outline of the process:
 1. Load and normalize CIFAR10
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 """
+
+# %%
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -105,6 +106,8 @@ import numpy as np
 def imshow(img):
     img = img / 2 + 0.5  # unnormalize
     npimg = img.numpy()
+    plt.figure(figsize=(10, 3))
+    plt.axis("off")
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.show()
 
@@ -114,15 +117,15 @@ dataiter = iter(trainloader)
 images, labels = next(dataiter)
 
 # show images
-imshow(torchvision.utils.make_grid(images))
+imshow(torchvision.utils.make_grid(images, pad_value=1))
 # print labels
 print(" ".join(f"{classes[labels[j]]:5s}" for j in range(batch_size)))
 
 
 # %%
-# 2. Define a Packed-Ensemble from a vanilla classifier
-# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-# First we define a vanilla classifier for CIFAR10 for reference. We will use a
+# 2. Define a Packed-Ensemble from a standard classifier
+# ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+# First we define a standard classifier for CIFAR10 for reference. We will use a
 # convolutional neural network.
 
 import torch.nn.functional as F
@@ -152,7 +155,7 @@ class Net(nn.Module):
 net = Net()
 
 # %%
-# Let's modify the vanilla classifier into a Packed-Ensemble classifier of
+# Let's modify the standard classifier into a Packed-Ensemble classifier of
 # parameters :math:`M=4,\ \alpha=2\text{ and }\gamma=1`.
 
 from einops import rearrange
@@ -246,7 +249,7 @@ dataiter = iter(testloader)
 images, labels = next(dataiter)
 
 # print images
-imshow(torchvision.utils.make_grid(images))
+imshow(torchvision.utils.make_grid(images, pad_value=1))
 print(
     "GroundTruth: ",
     " ".join(f"{classes[labels[j]]:5s}" for j in range(batch_size)),

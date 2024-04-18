@@ -1,133 +1,59 @@
-from argparse import ArgumentParser, BooleanOptionalAction
-from pathlib import Path
-from typing import Any, Literal, Optional, Type, Union
+from typing import Literal
 
-import torch
-from pytorch_lightning import LightningModule
-from pytorch_lightning.core.saving import (
-    load_hparams_from_tags_csv,
-    load_hparams_from_yaml,
-)
 from torch import nn
 
-from ...models.resnet import (
+from torch_uncertainty.models import mc_dropout
+from torch_uncertainty.models.resnet import (
     batched_resnet18,
+    batched_resnet20,
     batched_resnet34,
     batched_resnet50,
     batched_resnet101,
     batched_resnet152,
     masked_resnet18,
+    masked_resnet20,
     masked_resnet34,
     masked_resnet50,
     masked_resnet101,
     masked_resnet152,
     mimo_resnet18,
+    mimo_resnet20,
     mimo_resnet34,
     mimo_resnet50,
     mimo_resnet101,
     mimo_resnet152,
     packed_resnet18,
+    packed_resnet20,
     packed_resnet34,
     packed_resnet50,
     packed_resnet101,
     packed_resnet152,
     resnet18,
+    resnet20,
     resnet34,
     resnet50,
     resnet101,
     resnet152,
 )
-from ...routines.classification import (
-    ClassificationEnsemble,
-    ClassificationSingle,
-)
-from ...transforms import MIMOBatchFormat, RepeatTarget
-from ..utils.parser_addons import (
-    add_masked_specific_args,
-    add_mimo_specific_args,
-    add_packed_specific_args,
-    add_resnet_specific_args,
-)
+from torch_uncertainty.routines.classification import ClassificationRoutine
+from torch_uncertainty.transforms import MIMOBatchFormat, RepeatTarget
 
 
-class ResNet:
-    r"""ResNet backbone baseline for classification providing support for
-    various versions and architectures.
-
-    Args:
-        num_classes (int): Number of classes to predict.
-        in_channels (int): Number of input channels.
-        loss (nn.Module): Training loss.
-        optimization_procedure (Any): Optimization procedure, corresponds to
-            what expect the `LightningModule.configure_optimizers()
-            <https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#configure-optimizers>`_
-            method.
-        version (str):
-            Determines which ResNet version to use:
-
-            - ``"vanilla"``: original ResNet
-            - ``"packed"``: Packed-Ensembles ResNet
-            - ``"batched"``: BatchEnsemble ResNet
-            - ``"masked"``: Masksemble ResNet
-            - ``"mimo"``: MIMO ResNet
-            - ``"mc-dropout"``: Monte-Carlo Dropout ResNet
-
-        arch (int):
-            Determines which ResNet architecture to use:
-
-            - ``18``: ResNet-18
-            - ``32``: ResNet-32
-            - ``50``: ResNet-50
-            - ``101``: ResNet-101
-            - ``152``: ResNet-152
-
-        style (str, optional): Which ResNet style to use. Defaults to
-        ``imagenet``.
-        num_estimators (int, optional): Number of estimators in the ensemble.
-            Only used if :attr:`version` is either ``"packed"``, ``"batched"``,
-            ``"masked"`` or ``"mc-dropout"`` Defaults to ``None``.
-        groups (int, optional): Number of groups in convolutions. Defaults to
-            ``1``.
-        scale (float, optional): Expansion factor affecting the width of the
-            estimators. Only used if :attr:`version` is ``"masked"``. Defaults
-            to ``None``.
-        alpha (float, optional): Expansion factor affecting the width of the
-            estimators. Only used if :attr:`version` is ``"packed"``. Defaults
-            to ``None``.
-        gamma (int, optional): Number of groups within each estimator. Only
-            used if :attr:`version` is ``"packed"`` and scales with
-            :attr:`groups`. Defaults to ``1``.
-        rho (float, optional): Probability that all estimators share the same
-            input. Only used if :attr:`version` is ``"mimo"``. Defaults to
-            ``1``.
-        batch_repeat (int, optional): Number of times to repeat the batch. Only
-            used if :attr:`version` is ``"mimo"``. Defaults to ``1``.
-        use_entropy (bool, optional): Indicates whether to use the entropy
-            values as the OOD criterion or not. Defaults to ``False``.
-        use_logits (bool, optional): Indicates whether to use the logits as the
-            OOD criterion or not. Defaults to ``False``.
-        use_mi (bool, optional): Indicates whether to use the mutual
-            information as the OOD criterion or not. Defaults to ``False``.
-        use_variation_ratio (bool, optional): Indicates whether to use the
-            variation ratio as the OOD criterion or not. Defaults to ``False``.
-        pretrained (bool, optional): Indicates whether to use the pretrained
-            weights or not. Only used if :attr:`version` is ``"packed"``.
-            Defaults to ``False``.
-
-    Raises:
-        ValueError: If :attr:`version` is not either ``"vanilla"``,
-            ``"packed"``, ``"batched"``, ``"masked"`` or ``"mc-dropout"``.
-
-    Returns:
-        LightningModule: ResNet baseline ready for training and evaluation.
-    """
-
-    single = ["vanilla"]
-    ensemble = ["packed", "batched", "masked", "mimo", "mc-dropout"]
+class ResNetBaseline(ClassificationRoutine):
+    single = ["std"]
+    ensemble = ["packed", "batched", "masked", "mc-dropout", "mimo"]
     versions = {
-        "vanilla": [resnet18, resnet34, resnet50, resnet101, resnet152],
+        "std": [
+            resnet18,
+            resnet20,
+            resnet34,
+            resnet50,
+            resnet101,
+            resnet152,
+        ],
         "packed": [
             packed_resnet18,
+            packed_resnet20,
             packed_resnet34,
             packed_resnet50,
             packed_resnet101,
@@ -135,6 +61,7 @@ class ResNet:
         ],
         "batched": [
             batched_resnet18,
+            batched_resnet20,
             batched_resnet34,
             batched_resnet50,
             batched_resnet101,
@@ -142,6 +69,7 @@ class ResNet:
         ],
         "masked": [
             masked_resnet18,
+            masked_resnet20,
             masked_resnet34,
             masked_resnet50,
             masked_resnet101,
@@ -149,23 +77,30 @@ class ResNet:
         ],
         "mimo": [
             mimo_resnet18,
+            mimo_resnet20,
             mimo_resnet34,
             mimo_resnet50,
             mimo_resnet101,
             mimo_resnet152,
         ],
-        "mc-dropout": [resnet18, resnet34, resnet50, resnet101, resnet152],
+        "mc-dropout": [
+            resnet18,
+            resnet20,
+            resnet34,
+            resnet50,
+            resnet101,
+            resnet152,
+        ],
     }
-    archs = [18, 34, 50, 101, 152]
+    archs = [18, 20, 34, 50, 101, 152]
 
-    def __new__(
-        cls,
+    def __init__(
+        self,
         num_classes: int,
         in_channels: int,
-        loss: Type[nn.Module],
-        optimization_procedure: Any,
+        loss: nn.Module,
         version: Literal[
-            "vanilla",
+            "std",
             "mc-dropout",
             "packed",
             "batched",
@@ -174,152 +109,209 @@ class ResNet:
         ],
         arch: int,
         style: str = "imagenet",
-        num_estimators: Optional[int] = None,
+        num_estimators: int = 1,
         dropout_rate: float = 0.0,
+        mixtype: str = "erm",
+        mixmode: str = "elem",
+        dist_sim: str = "emb",
+        warping: str = "beta_cdf",
+        kernel_tau_max: float = 1.0,
+        kernel_tau_std: float = 0.5,
+        lower_quantile: bool = False,
+        quantile: float = 0.5,
+        mit_margin: float = 0.0,
+        mixup_alpha: float = 0,
+        cutmix_alpha: float = 0,
+        last_layer_dropout: bool = False,
         groups: int = 1,
-        scale: Optional[float] = None,
-        alpha: Optional[float] = None,
+        scale: float | None = None,
+        alpha: int | None = None,
         gamma: int = 1,
         rho: float = 1.0,
         batch_repeat: int = 1,
-        use_entropy: bool = False,
-        use_logits: bool = False,
-        use_mi: bool = False,
-        use_variation_ratio: bool = False,
+        ood_criterion: Literal[
+            "msp", "logit", "energy", "entropy", "mi", "vr"
+        ] = "msp",
+        log_plots: bool = False,
+        save_in_csv: bool = False,
+        calibration_set: Literal["val", "test"] | None = None,
+        eval_ood: bool = False,
+        eval_grouping_loss: bool = False,
         pretrained: bool = False,
-        **kwargs,
-    ) -> LightningModule:
+    ) -> None:
+        r"""ResNet backbone baseline for classification providing support for
+        various versions and architectures.
+
+        Args:
+            num_classes (int): Number of classes to predict.
+            in_channels (int): Number of input channels.
+            loss (nn.Module): Training loss.
+            optim_recipe (Any): optimization recipe, corresponds to
+                what expect the `LightningModule.configure_optimizers()
+                <https://pytorch-lightning.readthedocs.io/en/stable/common/lightning_module.html#configure-optimizers>`_
+                method.
+            version (str):
+                Determines which ResNet version to use:
+
+                - ``"std"``: original ResNet
+                - ``"packed"``: Packed-Ensembles ResNet
+                - ``"batched"``: BatchEnsemble ResNet
+                - ``"masked"``: Masksemble ResNet
+                - ``"mimo"``: MIMO ResNet
+                - ``"mc-dropout"``: Monte-Carlo Dropout ResNet
+
+            arch (int):
+                Determines which ResNet architecture to use:
+
+                - ``18``: ResNet-18
+                - ``32``: ResNet-32
+                - ``50``: ResNet-50
+                - ``101``: ResNet-101
+                - ``152``: ResNet-152
+
+            style (str, optional): Which ResNet style to use. Defaults to
+            ``imagenet``.
+            num_estimators (int, optional): Number of estimators in the ensemble.
+                Only used if :attr:`version` is either ``"packed"``, ``"batched"``,
+                ``"masked"`` or ``"mc-dropout"`` Defaults to ``None``.
+            dropout_rate (float, optional): Dropout rate. Defaults to ``0.0``.
+            mixtype (str, optional): Mixup type. Defaults to ``"erm"``.
+            mixmode (str, optional): Mixup mode. Defaults to ``"elem"``.
+            dist_sim (str, optional): Distance similarity. Defaults to ``"emb"``.
+            kernel_tau_max (float, optional): Maximum value for the kernel tau.
+                Defaults to ``1.0``.
+            kernel_tau_std (float, optional): Standard deviation for the kernel
+                tau. Defaults to ``0.5``.
+            lower_quantile (bool, optional): Indicates whether to use the lower quantile (True) or higher quantile (False) in QuantileMixup. Defaults to ``False``.
+            quantile (float, optional): The quantile value used for in QuantileMixup. Defaults to ``0.5``.
+            mit_margin (float, optional): Margin value for MIT Mixup. Defaults to ``0.0``.
+            warping (str, optional): The warping function used for Kernel Warping Mixup. Defaults to ``"beta_cdf"``.
+            mixup_alpha (float, optional): Alpha parameter for Mixup. Defaults
+                to ``0``.
+            cutmix_alpha (float, optional): Alpha parameter for CutMix.
+                Defaults to ``0``.
+            groups (int, optional): Number of groups in convolutions. Defaults
+                to ``1``.
+            scale (float, optional): Expansion factor affecting the width of
+                the estimators. Only used if :attr:`version` is ``"masked"``.
+                Defaults to ``None``.
+            last_layer_dropout (bool): whether to apply dropout to the last layer only.
+            groups (int, optional): Number of groups in convolutions. Defaults to
+                ``1``.
+            scale (float, optional): Expansion factor affecting the width of the
+                estimators. Only used if :attr:`version` is ``"masked"``. Defaults
+                to ``None``.
+            alpha (float, optional): Expansion factor affecting the width of the
+                estimators. Only used if :attr:`version` is ``"packed"``. Defaults
+                to ``None``.
+            gamma (int, optional): Number of groups within each estimator. Only
+                used if :attr:`version` is ``"packed"`` and scales with
+                :attr:`groups`. Defaults to ``1``.
+            rho (float, optional): Probability that all estimators share the same
+                input. Only used if :attr:`version` is ``"mimo"``. Defaults to
+                ``1``.
+            batch_repeat (int, optional): Number of times to repeat the batch. Only
+                used if :attr:`version` is ``"mimo"``. Defaults to ``1``.
+            ood_criterion (str, optional): OOD criterion. Defaults to ``"msp"``.
+                MSP is the maximum softmax probability, logit is the maximum
+                logit, entropy is the entropy of the mean prediction, mi is the
+                mutual information of the ensemble and vr is the variation ratio
+                of the ensemble.
+            log_plots (bool, optional): Indicates whether to log the plots or not.
+                Defaults to ``False``.
+            save_in_csv (bool, optional): Indicates whether to save the results in
+                a csv file or not. Defaults to ``False``.
+            calibration_set (Callable, optional): Calibration set. Defaults to
+                ``None``.
+            eval_ood (bool, optional): Indicates whether to evaluate the
+                OOD detection or not. Defaults to ``False``.
+            eval_grouping_loss (bool, optional): Indicates whether to evaluate the
+                grouping loss or not. Defaults to ``False``.
+            pretrained (bool, optional): Indicates whether to use the pretrained
+                weights or not. Only used if :attr:`version` is ``"packed"``.
+                Defaults to ``False``.
+
+        Raises:
+            ValueError: If :attr:`version` is not either ``"std"``,
+                ``"packed"``, ``"batched"``, ``"masked"`` or ``"mc-dropout"``.
+
+        Returns:
+            LightningModule: ResNet baseline ready for training and evaluation.
+        """
         params = {
+            "conv_bias": False,
+            "dropout_rate": dropout_rate,
+            "groups": groups,
             "in_channels": in_channels,
             "num_classes": num_classes,
             "style": style,
-            "groups": groups,
         }
 
         format_batch_fn = nn.Identity()
 
-        if version not in cls.versions.keys():
+        if version not in self.versions:
             raise ValueError(f"Unknown version: {version}")
 
-        if version == "vanilla":
-            params.update(
-                {
-                    "dropout_rate": dropout_rate,
-                }
-            )
-        elif version == "mc-dropout":
-            params.update(
-                {
-                    "dropout_rate": dropout_rate,
-                    "num_estimators": num_estimators,
-                }
-            )
-        elif version == "packed":
-            params.update(
-                {
-                    "num_estimators": num_estimators,
-                    "alpha": alpha,
-                    "gamma": gamma,
-                    "pretrained": pretrained,
-                }
-            )
-            format_batch_fn = RepeatTarget(num_repeats=num_estimators)
-        elif version == "batched":
-            params.update(
-                {
-                    "num_estimators": num_estimators,
-                }
-            )
-            format_batch_fn = RepeatTarget(num_repeats=num_estimators)
+        if version in self.ensemble:
+            params |= {
+                "num_estimators": num_estimators,
+            }
+
+            if version != "mc-dropout":
+                format_batch_fn = RepeatTarget(num_repeats=num_estimators)
+
+        if version == "packed":
+            params |= {
+                "alpha": alpha,
+                "gamma": gamma,
+                "pretrained": pretrained,
+            }
+
         elif version == "masked":
-            params.update(
-                {
-                    "num_estimators": num_estimators,
-                    "scale": scale,
-                }
-            )
-            format_batch_fn = RepeatTarget(num_repeats=num_estimators)
+            params |= {
+                "scale": scale,
+            }
+
         elif version == "mimo":
-            params.update(
-                {
-                    "num_estimators": num_estimators,
-                }
-            )
             format_batch_fn = MIMOBatchFormat(
                 num_estimators=num_estimators,
                 rho=rho,
                 batch_repeat=batch_repeat,
             )
 
-        model = cls.versions[version][cls.archs.index(arch)](**params)
-        kwargs.update(params)
-        kwargs.update({"version": version, "arch": arch})
-        # routine specific parameters
-        if version in cls.single:
-            return ClassificationSingle(
+        if version == "mc-dropout":  # std ResNets don't have `num_estimators`
+            del params["num_estimators"]
+
+        model = self.versions[version][self.archs.index(arch)](**params)
+        if version == "mc-dropout":
+            model = mc_dropout(
                 model=model,
-                loss=loss,
-                optimization_procedure=optimization_procedure,
-                format_batch_fn=format_batch_fn,
-                use_entropy=use_entropy,
-                use_logits=use_logits,
-                **kwargs,
-            )
-        else:  # version in cls.ensemble
-            return ClassificationEnsemble(
-                model=model,
-                loss=loss,
-                optimization_procedure=optimization_procedure,
-                format_batch_fn=format_batch_fn,
-                use_entropy=use_entropy,
-                use_logits=use_logits,
-                use_mi=use_mi,
-                use_variation_ratio=use_variation_ratio,
-                **kwargs,
+                num_estimators=num_estimators,
+                last_layer=last_layer_dropout,
             )
 
-    @classmethod
-    def load_from_checkpoint(
-        cls,
-        checkpoint_path: Union[str, Path],
-        hparams_file: Union[str, Path],
-        **kwargs,
-    ) -> LightningModule:  # coverage: ignore
-        if hparams_file is not None:
-            extension = str(hparams_file).split(".")[-1]
-            if extension.lower() == "csv":
-                hparams = load_hparams_from_tags_csv(hparams_file)
-            elif extension.lower() in ("yml", "yaml"):
-                hparams = load_hparams_from_yaml(hparams_file)
-            else:
-                raise ValueError(
-                    ".csv, .yml or .yaml is required for `hparams_file`"
-                )
-
-        hparams.update(kwargs)
-        checkpoint = torch.load(checkpoint_path)
-        obj = cls(**hparams)
-        obj.load_state_dict(checkpoint["state_dict"])
-        return obj
-
-    @classmethod
-    def add_model_specific_args(cls, parser: ArgumentParser) -> ArgumentParser:
-        parser = ClassificationEnsemble.add_model_specific_args(parser)
-        parser = add_resnet_specific_args(parser)
-        parser = add_packed_specific_args(parser)
-        parser = add_masked_specific_args(parser)
-        parser = add_mimo_specific_args(parser)
-        parser.add_argument(
-            "--version",
-            type=str,
-            choices=cls.versions.keys(),
-            default="vanilla",
-            help=f"Variation of ResNet. Choose among: {cls.versions.keys()}",
+        super().__init__(
+            num_classes=num_classes,
+            model=model,
+            loss=loss,
+            num_estimators=num_estimators,
+            format_batch_fn=format_batch_fn,
+            mixtype=mixtype,
+            mixmode=mixmode,
+            dist_sim=dist_sim,
+            warping=warping,
+            kernel_tau_max=kernel_tau_max,
+            kernel_tau_std=kernel_tau_std,
+            lower_quantile=lower_quantile,
+            quantile=quantile,
+            mit_margin=mit_margin,
+            mixup_alpha=mixup_alpha,
+            cutmix_alpha=cutmix_alpha,
+            eval_ood=eval_ood,
+            eval_grouping_loss=eval_grouping_loss,
+            ood_criterion=ood_criterion,
+            log_plots=log_plots,
+            save_in_csv=save_in_csv,
+            calibration_set=calibration_set,
         )
-        parser.add_argument(
-            "--pretrained",
-            dest="pretrained",
-            action=BooleanOptionalAction,
-            default=False,
-        )
-        return parser
+        self.save_hyperparameters(ignore=["loss"])

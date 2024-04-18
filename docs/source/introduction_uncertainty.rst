@@ -1,3 +1,5 @@
+:orphan:
+
 Introduction to Classification Uncertainty
 ==========================================
 
@@ -21,7 +23,6 @@ it may not be a good idea to trust these predictions. Let's see why in more deta
 
 The Overconfidence of Neural Networks
 -------------------------------------
-
 
 References
 ----------
