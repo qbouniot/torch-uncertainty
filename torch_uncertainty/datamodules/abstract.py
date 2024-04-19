@@ -18,7 +18,7 @@ class AbstractDataModule(LightningDataModule):
         self,
         root: str | Path,
         batch_size: int,
-        val_split: float,
+        val_split: float | Path | None,
         num_workers: int,
         pin_memory: bool,
         persistent_workers: bool,

@@ -22,6 +22,7 @@ from torch_uncertainty.losses import DECLoss, ELBOLoss
 from torch_uncertainty.metrics import (
     CE,
     FPR95,
+    AdaptiveCalibrationError,
     BrierScore,
     CategoricalNLL,
     Disagreement,
@@ -31,7 +32,16 @@ from torch_uncertainty.metrics import (
     VariationRatio,
 )
 from torch_uncertainty.post_processing import TemperatureScaler
-from torch_uncertainty.transforms import Mixup, MixupIO, RegMixup, WarpingMixup
+from torch_uncertainty.transforms import (
+    MITMixup,
+    Mixup,
+    MixupIO,
+    MixupTO,
+    QuantileMixup,
+    RankMixupMNDCG,
+    RegMixup,
+    WarpingMixup,
+)
 from torch_uncertainty.utils import csv_writer, plot_hist
 
 
@@ -47,8 +57,12 @@ class ClassificationRoutine(LightningModule):
         mixtype: str = "erm",
         mixmode: str = "elem",
         dist_sim: str = "emb",
+        warping: str = "beta_cdf",
         kernel_tau_max: float = 1.0,
         kernel_tau_std: float = 0.5,
+        lower_quantile: bool = False,
+        quantile: float = 0.5,
+        mit_margin: float = 0.0,
         mixup_alpha: float = 0,
         cutmix_alpha: float = 0,
         eval_ood: bool = False,
@@ -80,6 +94,10 @@ class ClassificationRoutine(LightningModule):
                 Defaults to ``1.0``.
             kernel_tau_std (float, optional): Standard deviation for the kernel tau.
                 Defaults to ``0.5``.
+            lower_quantile (bool, optional): Indicates whether to use the lower quantile (True) or higher quantile (False) in QuantileMixup. Defaults to ``False``.
+            quantile (float, optional): The quantile value used for in QuantileMixup. Defaults to ``0.5``.
+            mit_margin (float, optional): Margin value for MIT Mixup. Defaults to ``0.0``.
+            warping (str, optional): The warping function used for Kernel Warping Mixup. Defaults to ``"beta_cdf"``.
             mixup_alpha (float, optional): Alpha parameter for Mixup. Defaults to ``0``.
             cutmix_alpha (float, optional): Alpha parameter for Cutmix.
                 Defaults to ``0``.
@@ -158,6 +176,7 @@ class ClassificationRoutine(LightningModule):
                         task="multiclass", num_classes=self.num_classes
                     ),
                     "ECE": CE(task="multiclass", num_classes=self.num_classes),
+                    "AECE": AdaptiveCalibrationError(),
                     "Brier": BrierScore(num_classes=self.num_classes),
                 },
                 compute_groups=False,
@@ -194,7 +213,14 @@ class ClassificationRoutine(LightningModule):
                 )
 
             self.mixup = self.init_mixup(
-                mixup_alpha, cutmix_alpha, kernel_tau_max, kernel_tau_std
+                mixup_alpha,
+                cutmix_alpha,
+                warping,
+                lower_quantile,
+                quantile,
+                mit_margin,
+                kernel_tau_max,
+                kernel_tau_std,
             )
 
             if self.eval_grouping_loss:
@@ -233,6 +259,10 @@ class ClassificationRoutine(LightningModule):
         self,
         mixup_alpha: float,
         cutmix_alpha: float,
+        warping: str,
+        lower_quantile: bool,
+        quantile: float,
+        mit_margin: float,
         kernel_tau_max: float,
         kernel_tau_std: float,
     ) -> Callable:
@@ -267,8 +297,69 @@ class ClassificationRoutine(LightningModule):
                 mode=self.mixmode,
                 num_classes=self.num_classes,
                 apply_kernel=True,
+                warping=warping,
                 tau_max=kernel_tau_max,
                 tau_std=kernel_tau_std,
+            )
+        if self.mixtype == "manifold_mixup":
+            return MixupTO(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+            )
+        if self.mixtype == "manifold_warping_mixup":
+            return WarpingMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                apply_kernel=True,
+                warping=warping,
+                tau_max=kernel_tau_max,
+                tau_std=kernel_tau_std,
+                manifold=True,
+            )
+        if self.mixtype == "kernel_warping_regmixup":
+            return WarpingMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                apply_kernel=True,
+                warping=warping,
+                tau_max=kernel_tau_max,
+                tau_std=kernel_tau_std,
+                regularization=True,
+            )
+        if self.mixtype == "warp_quantile_mixup":
+            return QuantileMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                lower=lower_quantile,
+                quantile=quantile,
+                warp=True,
+            )
+        if self.mixtype == "nowarp_quantile_mixup":
+            return QuantileMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                lower=lower_quantile,
+                quantile=quantile,
+                warp=False,
+            )
+        if self.mixtype == "mit_all" or self.mixtype == "mit_last":
+            return MITMixup(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                margin=mit_margin,
+            )
+        if self.mixtype == "rankmixup":
+            return RankMixupMNDCG(
+                alpha=mixup_alpha,
+                mode=self.mixmode,
+                num_classes=self.num_classes,
+                num_mixup=3,
             )
         return Identity()
 
@@ -289,7 +380,7 @@ class ClassificationRoutine(LightningModule):
             dataset = (
                 self.trainer.datamodule.val_dataloader().dataset
                 if self.calibration_set == "val"
-                else self.trainer.datamodule.test_dataloader().dataset
+                else self.trainer.datamodule.test_dataloader()[0].dataset
             )
             with torch.inference_mode(False):
                 self.cal_model = TemperatureScaler(
@@ -329,21 +420,102 @@ class ClassificationRoutine(LightningModule):
     ) -> STEP_OUTPUT:
         # Mixup only for single models
         if self.num_estimators == 1:
-            if self.mixtype == "kernel_warping":
+            if (
+                self.mixtype == "kernel_warping"
+                or self.mixtype == "kernel_warping_regmixup"
+            ):
                 if self.dist_sim == "emb":
                     with torch.no_grad():
                         feats = self.model.feats_forward(batch[0]).detach()
-
                     batch = self.mixup(*batch, feats)
                 elif self.dist_sim == "inp":
                     batch = self.mixup(*batch, batch[0])
+            elif (
+                self.mixtype == "warp_quantile_mixup"
+                or self.mixtype == "nowarp_quantile_mixup"
+            ):
+                with torch.no_grad():
+                    feats = self.model.feats_forward(batch[0]).detach()
+                batch = self.mixup(*batch, feats)
+            elif self.mixtype == "manifold_mixup":
+                inputs1, inputs2, targets, lam = self.mixup(*batch)
+            elif self.mixtype == "manifold_warping_mixup":
+                if self.dist_sim == "emb":
+                    with torch.no_grad():
+                        feats = self.model.feats_forward(batch[0]).detach()
+                    inputs1, inputs2, targets, lam = self.mixup(*batch, feats)
+                elif self.dist_sim == "mani_mix":
+                    with torch.no_grad():
+                        feats, mix_hidden = self.model.manifold_feats_forward(
+                            batch[0]
+                        )
+                        feats = feats.detach()
+                    inputs1, inputs2, targets, lam = self.mixup(*batch, feats)
+                elif self.dist_sim == "inp":
+                    inputs1, inputs2, targets, lam = self.mixup(
+                        *batch, batch[0]
+                    )
+            elif self.mixtype == "mit_last" or self.mixtype == "mit_all":
+                inputs1, inputs2, targets1, targets2, lam1, lam2 = self.mixup(
+                    *batch
+                )
+            elif self.mixtype == "rankmixup":
+                inputs1, inputs2, targets1, targets2, lam = self.mixup(*batch)
             else:
                 batch = self.mixup(*batch)
 
-        inputs, targets = self.format_batch_fn(batch)
+        if self.num_estimators == 1:
+            if (
+                self.mixtype == "manifold_mixup"
+                or self.mixtype == "manifold_warping_mixup"
+            ):
+                inputs1, targets = self.format_batch_fn((inputs1, targets))
+                inputs2, targets = self.format_batch_fn((inputs2, targets))
+            elif (
+                self.mixtype == "mit_last"
+                or self.mixtype == "mit_all"
+                or self.mixtype == "rankmixup"
+            ):
+                inputs1, targets1 = self.format_batch_fn((inputs1, targets1))
+                inputs2, targets2 = self.format_batch_fn((inputs2, targets2))
+            else:
+                inputs, targets = self.format_batch_fn(batch)
+        else:
+            inputs, targets = self.format_batch_fn(batch)
 
         if self.is_elbo:
             loss = self.loss(inputs, targets)
+        elif self.mixtype == "manifold_mixup":
+            logits = self.model.mix_forward(inputs1, inputs2, lam)
+            loss = self.loss(logits, targets)
+        elif self.mixtype == "manifold_warping_mixup":
+            if self.dist_sim == "mani_mix":
+                logits = self.model.mix_forward(
+                    inputs1, inputs2, lam, mix_hidden
+                )
+            else:
+                logits = self.model.mix_forward(inputs1, inputs2, lam)
+            loss = self.loss(logits, targets)
+        elif self.mixtype == "mit_last" or self.mixtype == "mit_all":
+            logits1, logits2 = self.model.mit_forward(
+                inputs1,
+                inputs2,
+                lam1,
+                lam2,
+                self.mixup.margin,
+                self.mixup.alpha,
+                self.mixtype == "mit_all",
+            )
+            loss = 0.5 * self.loss(logits1, targets1) + 0.5 * self.loss(
+                logits2, targets2
+            )
+        elif self.mixtype == "rankmixup":
+            logits1 = self.forward(inputs1)
+            logits2 = self.forward(inputs2)
+            loss = self.loss(logits1, targets1) + 0.1 * (
+                1.0
+                - self.mixup.get_indcg(logits1, logits2, lam, targets2).mean()
+            )
         else:
             logits = self.forward(inputs)
             # BCEWithLogitsLoss expects float targets
@@ -516,6 +688,17 @@ class ClassificationRoutine(LightningModule):
         if self.num_estimators > 1:
             tmp_metrics = self.test_id_ens_metrics.compute()
             self.log_dict(tmp_metrics, sync_dist=True)
+            result_dict.update(tmp_metrics)
+            self.test_id_ens_metrics.reset()
+
+        if self.eval_grouping_loss:
+            self.log_dict(
+                self.test_grouping_loss.compute(),
+            )
+
+        if self.num_estimators > 1:
+            tmp_metrics = self.test_id_ens_metrics.compute()
+            self.log_dict(tmp_metrics)
             result_dict.update(tmp_metrics)
             self.test_id_ens_metrics.reset()
 

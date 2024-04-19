@@ -1,5 +1,6 @@
 # Custom
 .vscode/
+drafts/
 data/
 logs/
 lightning_logs/
@@ -8,6 +9,8 @@ docs/*/auto_tutorials/
 *.pth
 *.ckpt
 *.out
+*.sh
+*.slurm
 docs/source/sg_execution_times.rst
 test**/*.csv
 

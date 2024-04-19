@@ -67,6 +67,6 @@ class TestTinyImageNetDataModule:
             root="./data/", batch_size=128, val_split=0.1
         )
         dm.dataset = lambda root, split, transform: DummyClassificationDataset(
-            root, split=split, transform=transform, num_images=20
+            root, split=split, transform=transform, num_images=200
         )
         dm.make_cross_val_splits(2, 1)

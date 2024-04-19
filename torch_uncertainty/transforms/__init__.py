@@ -15,7 +15,16 @@ from .image import (
     Solarize,
     Translate,
 )
-from .mixup import Mixup, MixupIO, RegMixup, WarpingMixup
+from .mixup import (
+    MITMixup,
+    Mixup,
+    MixupIO,
+    MixupTO,
+    QuantileMixup,
+    RankMixupMNDCG,
+    RegMixup,
+    WarpingMixup,
+)
 
 augmentations = [
     AutoContrast,

@@ -45,6 +45,7 @@ class TinyImageNetDataModule(AbstractDataModule):
         self.ood_ds = ood_ds
 
         self.dataset = TinyImageNet
+        self.val_split = val_split
 
         if ood_ds == "imagenet-o":
             self.ood_dataset = ImageNetO

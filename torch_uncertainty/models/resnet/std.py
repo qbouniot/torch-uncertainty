@@ -1,6 +1,8 @@
+import random
 from collections.abc import Callable
 from typing import Literal
 
+import numpy as np
 from torch import Tensor, nn
 from torch.nn.functional import relu
 
@@ -337,6 +339,235 @@ class _ResNet(nn.Module):
             )
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
+
+    def mix_forward(
+        self, x1: Tensor, x2: Tensor, lam: float | Tensor, mix_hidden: int = -1
+    ) -> Tensor:
+        if mix_hidden > 2:
+            print("Error targeted hidden layer not implemented !")
+            mix_hidden = random.randint(0, 2)  # noqa: S311
+        elif mix_hidden < 0:
+            mix_hidden = random.randint(0, 2)  # noqa: S311
+
+        if mix_hidden == 0:
+            if isinstance(lam, Tensor):
+                lam = lam.view(-1, *[1 for _ in range(x1.ndim - 1)]).float()
+            out = lam * x1 + (1 - lam) * x2
+            out = relu(self.bn1(self.conv1(out)))
+            out = self.optional_pool(out)
+            out = self.layer1(out)
+            out = self.layer2(out)
+            out = self.layer3(out)
+            out = self.layer4(out)
+            out = self.pool(out)
+            out = self.flatten(out)
+
+        elif mix_hidden == 1:
+            out1 = relu(self.bn1(self.conv1(x1)))
+            out1 = self.optional_pool(out1)
+            out1 = self.layer1(out1)
+
+            out2 = relu(self.bn1(self.conv1(x2)))
+            out2 = self.optional_pool(out2)
+            out2 = self.layer1(out2)
+
+            if isinstance(lam, Tensor):
+                lam = lam.view(-1, *[1 for _ in range(out1.ndim - 1)]).float()
+
+            out = lam * out1 + (1 - lam) * out2
+
+            out = self.layer2(out)
+            out = self.layer3(out)
+            out = self.layer4(out)
+            out = self.pool(out)
+            out = self.flatten(out)
+
+        elif mix_hidden == 2:
+            out1 = relu(self.bn1(self.conv1(x1)))
+            out1 = self.optional_pool(out1)
+            out1 = self.layer1(out1)
+            out1 = self.layer2(out1)
+
+            out2 = relu(self.bn1(self.conv1(x2)))
+            out2 = self.optional_pool(out2)
+            out2 = self.layer1(out2)
+            out2 = self.layer2(out2)
+
+            if isinstance(lam, Tensor):
+                lam = lam.view(-1, *[1 for _ in range(out1.ndim - 1)]).float()
+
+            out = lam * out1 + (1 - lam) * out2
+
+            out = self.layer3(out)
+            out = self.layer4(out)
+            out = self.pool(out)
+            out = self.flatten(out)
+
+        # out = lam * out1 + (1 - lam) * out2
+
+        return self.linear(out)
+
+    def mit_forward(
+        self,
+        x1: Tensor,
+        x2: Tensor,
+        lam1: float | Tensor,
+        lam2: float | Tensor,
+        margin: float = 0.0,
+        alpha: float = 1.0,
+        full: bool = False,
+    ) -> tuple[Tensor, Tensor]:
+        out1 = relu(self.bn1(self.conv1(x1)))
+        out2 = relu(self.bn1(self.conv1(x2)))
+
+        if full:
+            coef1 = (1 - lam1) / (1 - lam2)
+            out_a = (out1 - coef1 * out2) / (lam1 - lam2 * coef1)
+
+            coef2 = lam2 / lam1
+            out_b = (out2 - coef2 * out1) / (1 - lam2 - (1 - lam1) * coef2)
+
+            lam1 = np.random.beta(alpha, alpha)
+            lam1 = max(lam1, 1 - lam1)
+            lam2 = np.random.beta(alpha, alpha)
+            lam2 = min(lam2, 1 - lam2)
+            while abs(lam1 - lam2) < margin:
+                lam1 = np.random.beta(alpha, alpha)
+                lam1 = max(lam1, 1 - lam1)
+                lam2 = np.random.beta(alpha, alpha)
+                lam2 = min(lam2, 1 - lam2)
+
+            out1 = lam1 * out_a + (1 - lam1) * out_b
+            out2 = lam2 * out_b + (1 - lam2) * out_b
+
+        out1 = self.optional_pool(out1)
+        out2 = self.optional_pool(out2)
+        out1 = self.layer1(out1)
+        out2 = self.layer1(out2)
+
+        if full:
+            coef1 = (1 - lam1) / (1 - lam2)
+            out_a = (out1 - coef1 * out2) / (lam1 - lam2 * coef1)
+
+            coef2 = lam2 / lam1
+            out_b = (out2 - coef2 * out1) / (1 - lam2 - (1 - lam1) * coef2)
+
+            lam1 = np.random.beta(alpha, alpha)
+            lam1 = max(lam1, 1 - lam1)
+            lam2 = np.random.beta(alpha, alpha)
+            lam2 = min(lam2, 1 - lam2)
+            while abs(lam1 - lam2) < margin:
+                lam1 = np.random.beta(alpha, alpha)
+                lam1 = max(lam1, 1 - lam1)
+                lam2 = np.random.beta(alpha, alpha)
+                lam2 = min(lam2, 1 - lam2)
+
+            out1 = lam1 * out_a + (1 - lam1) * out_b
+            out2 = lam2 * out_b + (1 - lam2) * out_b
+
+        out1 = self.layer2(out1)
+        out2 = self.layer2(out2)
+
+        if full:
+            coef1 = (1 - lam1) / (1 - lam2)
+            out_a = (out1 - coef1 * out2) / (lam1 - lam2 * coef1)
+
+            coef2 = lam2 / lam1
+            out_b = (out2 - coef2 * out1) / (1 - lam2 - (1 - lam1) * coef2)
+
+            lam1 = np.random.beta(alpha, alpha)
+            lam1 = max(lam1, 1 - lam1)
+            lam2 = np.random.beta(alpha, alpha)
+            lam2 = min(lam2, 1 - lam2)
+            while abs(lam1 - lam2) < margin:
+                lam1 = np.random.beta(alpha, alpha)
+                lam1 = max(lam1, 1 - lam1)
+                lam2 = np.random.beta(alpha, alpha)
+                lam2 = min(lam2, 1 - lam2)
+
+            out1 = lam1 * out_a + (1 - lam1) * out_b
+            out2 = lam2 * out_b + (1 - lam2) * out_b
+
+        out1 = self.layer3(out1)
+        out2 = self.layer3(out2)
+
+        if full:
+            coef1 = (1 - lam1) / (1 - lam2)
+            out_a = (out1 - coef1 * out2) / (lam1 - lam2 * coef1)
+
+            coef2 = lam2 / lam1
+            out_b = (out2 - coef2 * out1) / (1 - lam2 - (1 - lam1) * coef2)
+
+            lam1 = np.random.beta(alpha, alpha)
+            lam1 = max(lam1, 1 - lam1)
+            lam2 = np.random.beta(alpha, alpha)
+            lam2 = min(lam2, 1 - lam2)
+            while abs(lam1 - lam2) < margin:
+                lam1 = np.random.beta(alpha, alpha)
+                lam1 = max(lam1, 1 - lam1)
+                lam2 = np.random.beta(alpha, alpha)
+                lam2 = min(lam2, 1 - lam2)
+
+            out1 = lam1 * out_a + (1 - lam1) * out_b
+            out2 = lam2 * out_b + (1 - lam2) * out_b
+
+        out1 = self.layer4(out1)
+        out2 = self.layer4(out2)
+
+        if full:
+            coef1 = (1 - lam1) / (1 - lam2)
+            out_a = (out1 - coef1 * out2) / (lam1 - lam2 * coef1)
+
+            coef2 = lam2 / lam1
+            out_b = (out2 - coef2 * out1) / (1 - lam2 - (1 - lam1) * coef2)
+
+            lam1 = np.random.beta(alpha, alpha)
+            lam1 = max(lam1, 1 - lam1)
+            lam2 = np.random.beta(alpha, alpha)
+            lam2 = min(lam2, 1 - lam2)
+            while abs(lam1 - lam2) < margin:
+                lam1 = np.random.beta(alpha, alpha)
+                lam1 = max(lam1, 1 - lam1)
+                lam2 = np.random.beta(alpha, alpha)
+                lam2 = min(lam2, 1 - lam2)
+
+            out1 = lam1 * out_a + (1 - lam1) * out_b
+            out2 = lam2 * out_b + (1 - lam2) * out_b
+
+        out1 = self.pool(out1)
+        out1 = self.flatten(out1)
+        out1 = self.linear(out1)
+
+        out2 = self.pool(out2)
+        out2 = self.flatten(out2)
+        out2 = self.linear(out2)
+
+        coef1 = (1 - lam1) / (1 - lam2)
+        out_a = (out1 - coef1 * out2) / (lam1 - lam2 * coef1)
+
+        coef2 = lam2 / lam1
+        out_b = (out2 - coef2 * out1) / (1 - lam2 - (1 - lam1) * coef2)
+
+        return out_a, out_b
+
+    def manifold_feats_forward(self, x: Tensor) -> tuple[Tensor, int]:
+        mix_hidden = random.randint(0, 2)  # noqa: S311
+
+        if mix_hidden == 1:
+            out = relu(self.bn1(self.conv1(x)))
+            out = self.optional_pool(out)
+            out = self.layer1(out)
+
+        elif mix_hidden == 2:
+            out = relu(self.bn1(self.conv1(x)))
+            out = self.optional_pool(out)
+            out = self.layer1(out)
+            out = self.layer2(out)
+
+        else:
+            out = x
+
+        return out, mix_hidden
 
     def feats_forward(self, x: Tensor) -> Tensor:
         out = self.activation_fn(self.bn1(self.conv1(x)))

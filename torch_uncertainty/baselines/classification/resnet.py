@@ -114,8 +114,12 @@ class ResNetBaseline(ClassificationRoutine):
         mixtype: str = "erm",
         mixmode: str = "elem",
         dist_sim: str = "emb",
+        warping: str = "beta_cdf",
         kernel_tau_max: float = 1.0,
         kernel_tau_std: float = 0.5,
+        lower_quantile: bool = False,
+        quantile: float = 0.5,
+        mit_margin: float = 0.0,
         mixup_alpha: float = 0,
         cutmix_alpha: float = 0,
         last_layer_dropout: bool = False,
@@ -178,6 +182,10 @@ class ResNetBaseline(ClassificationRoutine):
                 Defaults to ``1.0``.
             kernel_tau_std (float, optional): Standard deviation for the kernel
                 tau. Defaults to ``0.5``.
+            lower_quantile (bool, optional): Indicates whether to use the lower quantile (True) or higher quantile (False) in QuantileMixup. Defaults to ``False``.
+            quantile (float, optional): The quantile value used for in QuantileMixup. Defaults to ``0.5``.
+            mit_margin (float, optional): Margin value for MIT Mixup. Defaults to ``0.0``.
+            warping (str, optional): The warping function used for Kernel Warping Mixup. Defaults to ``"beta_cdf"``.
             mixup_alpha (float, optional): Alpha parameter for Mixup. Defaults
                 to ``0``.
             cutmix_alpha (float, optional): Alpha parameter for CutMix.
@@ -291,8 +299,12 @@ class ResNetBaseline(ClassificationRoutine):
             mixtype=mixtype,
             mixmode=mixmode,
             dist_sim=dist_sim,
+            warping=warping,
             kernel_tau_max=kernel_tau_max,
             kernel_tau_std=kernel_tau_std,
+            lower_quantile=lower_quantile,
+            quantile=quantile,
+            mit_margin=mit_margin,
             mixup_alpha=mixup_alpha,
             cutmix_alpha=cutmix_alpha,
             eval_ood=eval_ood,
