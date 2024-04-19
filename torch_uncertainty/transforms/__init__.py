@@ -21,7 +21,7 @@ from .mixup import (
     MixupIO,
     MixupTO,
     QuantileMixup,
-    RankMixup_MNDCG,
+    RankMixupMNDCG,
     RegMixup,
     WarpingMixup,
 )

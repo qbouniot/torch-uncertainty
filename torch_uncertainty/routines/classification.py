@@ -38,7 +38,7 @@ from torch_uncertainty.transforms import (
     MixupIO,
     MixupTO,
     QuantileMixup,
-    RankMixup_MNDCG,
+    RankMixupMNDCG,
     RegMixup,
     WarpingMixup,
 )
@@ -355,7 +355,7 @@ class ClassificationRoutine(LightningModule):
                 margin=mit_margin,
             )
         if self.mixtype == "rankmixup":
-            return RankMixup_MNDCG(
+            return RankMixupMNDCG(
                 alpha=mixup_alpha,
                 mode=self.mixmode,
                 num_classes=self.num_classes,
