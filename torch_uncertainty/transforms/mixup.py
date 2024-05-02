@@ -364,6 +364,7 @@ class WarpingMixup(AbstractMixup):
         regularization: bool = False,
         lookup: bool = False,
         lookup_size: int = 4096,
+        dist: str = "l2",
     ) -> None:
         """Kernel Warping Mixup method from Bouniot et al.
 
@@ -381,6 +382,10 @@ class WarpingMixup(AbstractMixup):
         self.lookup_size = lookup_size
         if self.warping == "lookup":
             self.rng_gen = None
+        self.dist = dist
+        if self.dist == "mahalanobis":
+            self.accumul = 10
+            self.batch_id = 0
 
     def _init_lookup_table(self, lookup_size, device):
         self.rng_gen = torch.distributions.Beta(
@@ -414,6 +419,13 @@ class WarpingMixup(AbstractMixup):
                 lam = np.random.beta(self.alpha, self.alpha, batch_size)
 
         index = torch.randperm(batch_size, device=device)
+        # if self.dist == "l2":
+        #     index = torch.randperm(batch_size, device=device)
+        # elif self.dist == "mahalanobis":
+        #     if (self.batch_id +1) < self.accumul:
+        #         index = torch.randperm(batch_size, device=device)
+        #     else:
+        #         index = torch.randperm(batch_size)
         return lam, index
 
     def __call__(
@@ -427,31 +439,75 @@ class WarpingMixup(AbstractMixup):
 
         if self.apply_kernel:
             if self.warping == "lookup":
-                l2_dist = (
+                dist = (
                     (feats - feats[index])
                     .pow(2)
                     .sum([i for i in range(len(feats.size())) if i > 0])
                 )
-                l2_dist = l2_dist / torch.mean(l2_dist)
+                dist = dist / torch.mean(dist)
             else:
-                l2_dist = (
-                    (feats - feats[index])
-                    .pow(2)
-                    .sum([i for i in range(len(feats.size())) if i > 0])
-                    .cpu()
-                    .numpy()
-                )
-                l2_dist = l2_dist / l2_dist.mean()
+                if self.dist == "l2":
+                    dist = (
+                        (feats - feats[index])
+                        .pow(2)
+                        .sum([i for i in range(len(feats.size())) if i > 0])
+                        .cpu()
+                        .numpy()
+                    )
+                    dist = dist / dist.mean()
+                elif self.dist == "mahalanobis":
+                    if self.batch_id == 0:
+                        self.queue = np.zeros(
+                            (feats.shape[0] * self.accumul, feats.shape[1])
+                        )
+                    # feats_np = feats.cpu().numpy()
+                    self.queue[
+                        (self.batch_id % self.accumul) * feats.shape[0] : (
+                            (self.batch_id) % self.accumul
+                        )
+                        * feats.shape[0]
+                        + feats.shape[0]
+                    ] = feats.cpu()
+                    self.batch_id += 1
+                    if self.batch_id < self.accumul:
+                        dist = (
+                            (feats - feats[index])
+                            .pow(2)
+                            .sum([i for i in range(len(feats.size())) if i > 0])
+                            .cpu()
+                            .numpy()
+                        )
+                        dist = dist / dist.mean()
+                    else:
+                        id_n = 1e-6 * torch.eye(
+                            feats.shape[1], device=feats.device
+                        )
+                        sample_cov_inv = torch.linalg.inv(
+                            torch.cov(
+                                torch.as_tensor(
+                                    self.queue.transpose(),
+                                    dtype=torch.float32,
+                                    device=feats.device,
+                                ),
+                                correction=1,
+                            )
+                            + id_n
+                        )
+                        dist = ((feats - feats[index]) @ sample_cov_inv) @ (
+                            (feats - feats[index]).T
+                        )
+                        dist = dist.diagonal().cpu().numpy()
+                        dist = dist / dist.mean()
                 if (
                     self.warping == "inverse_beta_cdf"
                     or self.warping == "no_warp"
                 ):
                     warp_param = sim_gauss_kernel(
-                        l2_dist, self.tau_max, self.tau_std, inverse_cdf=True
+                        dist, self.tau_max, self.tau_std, inverse_cdf=True
                     )
                 elif self.warping == "beta_cdf":
                     warp_param = sim_gauss_kernel(
-                        l2_dist, self.tau_max, self.tau_std
+                        dist, self.tau_max, self.tau_std
                     )
                 else:
                     raise NotImplementedError
@@ -472,7 +528,7 @@ class WarpingMixup(AbstractMixup):
             )
         elif self.warping == "lookup":
             lookup_y = torch.minimum(
-                l2_dist // (self.y_max / self.nb_betas), self.nb_betas - 1
+                dist // (self.y_max / self.nb_betas), self.nb_betas - 1
             ).int()
             lookup_x = torch.maximum(
                 lam // (1 / self.lookup_size), torch.ones_like(self.y_max)

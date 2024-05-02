@@ -114,6 +114,7 @@ class ResNetBaseline(ClassificationRoutine):
         mixtype: str = "erm",
         mixmode: str = "elem",
         dist_sim: str = "emb",
+        dist: str = "l2",
         warping: str = "beta_cdf",
         kernel_tau_max: float = 1.0,
         kernel_tau_std: float = 0.5,
@@ -177,7 +178,8 @@ class ResNetBaseline(ClassificationRoutine):
             dropout_rate (float, optional): Dropout rate. Defaults to ``0.0``.
             mixtype (str, optional): Mixup type. Defaults to ``"erm"``.
             mixmode (str, optional): Mixup mode. Defaults to ``"elem"``.
-            dist_sim (str, optional): Distance similarity. Defaults to ``"emb"``.
+            dist_sim (str, optional): Space in which to compute distance similarity. Defaults to ``"emb"``.
+            dist (str, optional): Which distance similarity to use. Defaults to ``"l2"``.
             kernel_tau_max (float, optional): Maximum value for the kernel tau.
                 Defaults to ``1.0``.
             kernel_tau_std (float, optional): Standard deviation for the kernel
@@ -299,6 +301,7 @@ class ResNetBaseline(ClassificationRoutine):
             mixtype=mixtype,
             mixmode=mixmode,
             dist_sim=dist_sim,
+            dist=dist,
             warping=warping,
             kernel_tau_max=kernel_tau_max,
             kernel_tau_std=kernel_tau_std,

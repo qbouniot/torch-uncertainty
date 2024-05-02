@@ -57,6 +57,7 @@ class ClassificationRoutine(LightningModule):
         mixmode: str = "elem",
         dist_sim: str = "emb",
         warping: str = "beta_cdf",
+        dist: str = "l2",
         kernel_tau_max: float = 1.0,
         kernel_tau_std: float = 0.5,
         lower_quantile: bool = False,
@@ -89,7 +90,8 @@ class ClassificationRoutine(LightningModule):
                 optionally the scheduler to use. Defaults to ``None``.
             mixtype (str, optional): Mixup type. Defaults to ``"erm"``.
             mixmode (str, optional): Mixup mode. Defaults to ``"elem"``.
-            dist_sim (str, optional): Distance similarity. Defaults to ``"emb"``.
+            dist_sim (str, optional): Space in which to compute distance similarity. Defaults to ``"emb"``.
+            dist (str, optional): Which distance similarity to use. Defaults to ``"l2"``.
             kernel_tau_max (float, optional): Maximum value for the kernel tau.
                 Defaults to ``1.0``.
             kernel_tau_std (float, optional): Standard deviation for the kernel tau.
@@ -234,6 +236,7 @@ class ClassificationRoutine(LightningModule):
                 mixup_alpha,
                 cutmix_alpha,
                 warping,
+                dist,
                 lower_quantile,
                 quantile,
                 mit_margin,
@@ -278,6 +281,7 @@ class ClassificationRoutine(LightningModule):
         mixup_alpha: float,
         cutmix_alpha: float,
         warping: str,
+        dist: str,
         lower_quantile: bool,
         quantile: float,
         mit_margin: float,
@@ -316,6 +320,7 @@ class ClassificationRoutine(LightningModule):
                 num_classes=self.num_classes,
                 apply_kernel=True,
                 warping=warping,
+                dist=dist,
                 tau_max=kernel_tau_max,
                 tau_std=kernel_tau_std,
             )
